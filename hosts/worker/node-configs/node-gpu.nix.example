@@ -1,0 +1,35 @@
+# Example: GPU node (different NIC layout, NVMe pool)
+{
+  hostname = "node-gpu";
+  hostId = "c9d0e1f2";
+
+  primaryInterface = "eno1";
+  primaryAddress = "10.0.0.12/20";
+  primaryGateway = "10.0.0.1";
+
+  enable10g = true;
+  sfpInterfaces = [ "enp2s0f0" "enp2s0f1" ];  # Different PCI slot than Dell R430s
+  storageAddress = "10.0.32.12/20";
+  migrationAddress = "10.0.254.12/24";
+
+  k3sRole = "server";
+  k3sServerAddr = "https://10.0.0.10:6443";
+  k3sTokenFile = "/etc/k3s-token";
+
+  enableEdge = true;
+  edgeInterface = "eno2";  # Different chassis layout — eno2 not eno3
+  edgeAddress = "10.0.16.20/20";
+  tunnelAddress = "10.0.48.20/20";
+
+  enableKvm = false;  # GPU node, not a hypervisor
+  enableWindowsBridge = false;
+
+  enableZfs = true;
+  zfsPools = [ "fastpool" ];  # NVMe pool, not HDD
+
+  enableGpu = true;
+
+  sshKeys = [
+    # "ssh-ed25519 AAAAC3... admin@workstation"
+  ];
+}

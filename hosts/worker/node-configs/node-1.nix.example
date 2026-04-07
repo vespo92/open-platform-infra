@@ -1,0 +1,34 @@
+# Example: First control-plane node (HA etcd + K3s server)
+{
+  hostname = "node-1";
+  hostId = "a1b2c3d4";  # head -c4 /dev/urandom | od -A none -t x4 | tr -d ' '
+
+  primaryInterface = "eno1";
+  primaryAddress = "10.0.0.10/20";
+  primaryGateway = "10.0.0.1";
+
+  enable10g = true;
+  sfpInterfaces = [ "enp5s0f0" "enp5s0f1" ];
+  storageAddress = "10.0.32.10/20";
+  migrationAddress = "10.0.254.10/24";
+
+  k3sRole = "server";
+  k3sServerAddr = "";  # Empty = first node (cluster-init)
+  k3sTokenFile = "/etc/k3s-token";
+
+  enableEdge = true;
+  edgeInterface = "eno3";
+  edgeAddress = "10.0.16.2/20";
+  tunnelAddress = "10.0.48.10/20";
+
+  enableKvm = true;
+  enableWindowsBridge = true;
+  bridgeInterface = "eno2";
+
+  enableZfs = true;
+  zfsPools = [ "tank" ];
+
+  sshKeys = [
+    # "ssh-ed25519 AAAAC3... admin@workstation"
+  ];
+}

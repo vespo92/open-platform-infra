@@ -1,0 +1,34 @@
+# Example: Second control-plane node (joins existing cluster)
+{
+  hostname = "node-2";
+  hostId = "e5f6a7b8";
+
+  primaryInterface = "eno1";
+  primaryAddress = "10.0.0.11/20";
+  primaryGateway = "10.0.0.1";
+
+  enable10g = true;
+  sfpInterfaces = [ "enp5s0f0" "enp5s0f1" ];
+  storageAddress = "10.0.32.11/20";
+  migrationAddress = "10.0.254.11/24";
+
+  k3sRole = "server";
+  k3sServerAddr = "https://10.0.0.10:6443";  # Points to first node
+  k3sTokenFile = "/etc/k3s-token";
+
+  enableEdge = true;
+  edgeInterface = "eno3";
+  edgeAddress = "10.0.16.11/20";
+  tunnelAddress = "10.0.48.11/20";
+
+  enableKvm = true;
+  enableWindowsBridge = true;
+  bridgeInterface = "eno2";
+
+  enableZfs = true;
+  zfsPools = [ "tank" ];
+
+  sshKeys = [
+    # "ssh-ed25519 AAAAC3... admin@workstation"
+  ];
+}
