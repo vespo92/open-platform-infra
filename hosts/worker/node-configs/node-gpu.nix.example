@@ -28,6 +28,7 @@
   zfsPools = [ "fastpool" ];  # NVMe pool, not HDD
 
   enableGpu = true;
+  nodeClass = "gpu";
 
   sshKeys = [
     # "ssh-ed25519 AAAAC3... admin@workstation"

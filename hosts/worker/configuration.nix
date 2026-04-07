@@ -52,6 +52,7 @@ in
 {
   imports = [
     ./hardware-configuration.nix
+    ../../modules/hardware-classification.nix
   ];
 
   # ═══════════════════════════════════════════════════════════
@@ -252,6 +253,25 @@ in
     serverAddr = node.k3sServerAddr;
     extraFlags = [
       "--disable" "servicelb"  # Use MetalLB instead
+    ]
+    # ── Hardware-derived node labels ──
+    # These propagate node-config.nix capabilities into Kubernetes at registration.
+    # The hardware-discovery DaemonSet adds runtime-detected labels (ECC, NVMe, etc.)
+    # on top of these static labels.
+    ++ [ "--node-label" "platform.openplatform.io/10g=${lib.boolToString node.enable10g}" ]
+    ++ [ "--node-label" "platform.openplatform.io/edge=${lib.boolToString (nodeAttr "enableEdge" false)}" ]
+    ++ [ "--node-label" "platform.openplatform.io/kvm=${lib.boolToString (nodeAttr "enableKvm" false)}" ]
+    ++ [ "--node-label" "platform.openplatform.io/gpu.enabled=${lib.boolToString (nodeAttr "enableGpu" false)}" ]
+    ++ [ "--node-label" "platform.openplatform.io/zfs=${lib.boolToString (nodeAttr "enableZfs" false)}" ]
+    ++ [ "--node-label" "platform.openplatform.io/role=${node.k3sRole}" ]
+    ++ lib.optionals (nodeAttr "nodeClass" null != null) [
+      "--node-label" "platform.openplatform.io/node-class=${node.nodeClass}"
+    ]
+    # ── GPU taint at registration ──
+    # Ensures GPU nodes are protected from the moment they join the cluster,
+    # before the hardware-discovery DaemonSet runs.
+    ++ lib.optionals (nodeAttr "enableGpu" false) [
+      "--node-taint" "gpu=true:NoSchedule"
     ];
   };
 

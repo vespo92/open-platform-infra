@@ -10,3 +10,4 @@ resources:
   - flux/gitops-source.yaml
   - vcluster/helmrelease.yaml
   - coredns/deployment.yaml
+  - hardware-discovery/daemonset.yaml
