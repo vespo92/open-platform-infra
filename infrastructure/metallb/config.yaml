@@ -1,0 +1,22 @@
+# MetalLB address pool and L2 advertisement.
+# Customize the address range and interface for your environment.
+# These values should match your site-config.nix metallb section.
+apiVersion: metallb.io/v1beta1
+kind: IPAddressPool
+metadata:
+  name: shared-infra
+  namespace: metallb-system
+spec:
+  addresses:
+    - 10.0.16.0/24  # Customize: your MetalLB VIP range (subset of edge VLAN)
+---
+apiVersion: metallb.io/v1beta1
+kind: L2Advertisement
+metadata:
+  name: shared-infra-l2
+  namespace: metallb-system
+spec:
+  ipAddressPools:
+    - shared-infra
+  interfaces:
+    - vlan101  # Customize: your edge VLAN interface name

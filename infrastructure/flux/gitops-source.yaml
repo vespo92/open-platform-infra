@@ -1,0 +1,35 @@
+# Flux GitRepository pointing to this infrastructure repo.
+# After bootstrap, Flux watches this repo and reconciles all
+# infrastructure HelmReleases automatically.
+#
+# To bootstrap:
+#   flux bootstrap git \
+#     --url=https://github.com/your-org/open-platform-infra \
+#     --branch=main \
+#     --path=infrastructure
+apiVersion: source.toolkit.fluxcd.io/v1
+kind: GitRepository
+metadata:
+  name: infrastructure
+  namespace: flux-system
+spec:
+  interval: 5m
+  url: https://github.com/your-org/open-platform-infra  # Customize: your infrastructure repo
+  ref:
+    branch: main
+---
+apiVersion: kustomize.toolkit.fluxcd.io/v1
+kind: Kustomization
+metadata:
+  name: infrastructure
+  namespace: flux-system
+spec:
+  interval: 10m
+  retryInterval: 1m
+  timeout: 10m
+  sourceRef:
+    kind: GitRepository
+    name: infrastructure
+  path: ./infrastructure
+  prune: false  # IMPORTANT: never auto-delete infrastructure on git changes
+  wait: true

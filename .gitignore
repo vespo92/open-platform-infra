@@ -1,0 +1,15 @@
+# Site-specific config (contains your IPs, keys)
+site-config.nix
+
+# Secrets
+*.key
+*.pem
+k3s-token
+.env
+
+# Nix
+result
+.direnv
+
+# OS
+.DS_Store

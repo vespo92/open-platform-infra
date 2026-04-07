@@ -1,0 +1,80 @@
+# Site Configuration — Fill in YOUR values
+# This file is imported by lib/site.nix and provides all site-specific constants.
+# Copy to site-config.nix and customize for your environment.
+
+{
+  # ── Organization ────────────────────────────────────────────────────────────
+  orgName = "myorg";
+  domain = "myplatform.example.com";
+
+  # ── SSH Keys (at least one required) ────────────────────────────────────────
+  sshKeys = [
+    # "ssh-ed25519 AAAAC3... admin@workstation"
+  ];
+
+  # ── VLANs ───────────────────────────────────────────────────────────────────
+  # Adjust IDs and CIDRs to match your network. The pattern assumes a firewall
+  # doing all inter-VLAN routing (like Palo Alto, pfSense, OPNsense).
+  vlans = {
+    nodes     = { id = 100; cidr = "10.0.0.0/20";    gateway = "10.0.0.1"; };
+    edge      = { id = 101; cidr = "10.0.16.0/20";   gateway = "10.0.16.1"; };
+    storage   = { id = 102; cidr = "10.0.32.0/20";   gateway = null; };  # east-west only, no firewall routing
+    tunnel    = { id = 103; cidr = "10.0.48.0/20";   gateway = "10.0.48.1"; };
+    provision = { id = 105; cidr = "10.0.64.0/20";   gateway = null; };  # flat L2, PXE only
+    migration = { id = 900; cidr = "10.0.254.0/24";  gateway = null; };  # east-west only, no firewall routing
+  };
+
+  # ── MetalLB ─────────────────────────────────────────────────────────────────
+  metallb = {
+    addressPool = "10.0.16.0/24";    # Subset of edge VLAN for VIPs
+    traefikVip = "10.0.16.10";       # Primary ingress VIP
+    interface = "vlan101";            # L2 advertisement interface
+  };
+
+  # ── K3s ─────────────────────────────────────────────────────────────────────
+  k3s = {
+    clusterCidr = "10.42.0.0/16";
+    serviceCidr = "10.43.0.0/16";
+    nodeCidrMask = 20;                # /20 per node (4096 pod IPs each)
+    # Token: generate with `openssl rand -hex 32` and place in /etc/k3s-token on each node
+  };
+
+  # ── Nodes ───────────────────────────────────────────────────────────────────
+  # Define your nodes here. Each node gets a per-node config in hosts/worker/node-configs/
+  nodes = {
+    node-1 = {
+      hardware = "Dell R430";         # For documentation
+      k8s = "10.0.0.10";             # VLAN 100 (primary)
+      edge = "10.0.16.2";            # VLAN 101 (MetalLB)
+      storage = "10.0.32.10";        # VLAN 102 (10G fabric)
+      role = "server";               # "server" (control-plane + etcd) or "agent"
+    };
+    node-2 = {
+      hardware = "Dell R430";
+      k8s = "10.0.0.11";
+      edge = "10.0.16.11";
+      storage = "10.0.32.11";
+      role = "server";
+    };
+    node-3 = {
+      hardware = "AMD EPYC";
+      k8s = "10.0.0.12";
+      edge = "10.0.16.20";
+      storage = "10.0.32.12";
+      role = "server";
+      gpu = true;                     # NVIDIA GPU passthrough
+    };
+  };
+
+  # ── PXE Provisioning (optional) ────────────────────────────────────────────
+  provisioning = {
+    serverIP = "10.0.64.10";          # PXE/DHCP/TFTP server (usually node-1)
+    dhcpRange = { start = "10.0.64.100"; end = "10.0.64.254"; };
+    httpPort = 9080;
+  };
+
+  # ── TLS ─────────────────────────────────────────────────────────────────────
+  tls = {
+    email = "admin@example.com";      # Let's Encrypt registration email
+  };
+}

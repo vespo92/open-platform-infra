@@ -1,0 +1,84 @@
+# CoreDNS deployment for network-wide DNS resolution.
+# Provides internal service discovery and external DNS for the domain.
+# Customize the domain and VIP for your environment.
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: dns-external
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: coredns-config
+  namespace: dns-external
+data:
+  Corefile: |
+    .:53 {
+        errors
+        health
+        ready
+        # Forward to upstream DNS (customize for your environment)
+        forward . 8.8.8.8 8.8.4.4
+        cache 30
+        loop
+        reload
+        loadbalance
+    }
+    # Add your domain zone here:
+    # example.com:53 {
+    #     file /etc/coredns/zones/example.com.zone
+    # }
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: coredns
+  namespace: dns-external
+  labels:
+    app: coredns
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: coredns
+  template:
+    metadata:
+      labels:
+        app: coredns
+    spec:
+      containers:
+        - name: coredns
+          image: coredns/coredns:1.11.1
+          args: ["-conf", "/etc/coredns/Corefile"]
+          ports:
+            - containerPort: 53
+              protocol: UDP
+            - containerPort: 53
+              protocol: TCP
+          volumeMounts:
+            - name: config
+              mountPath: /etc/coredns
+      volumes:
+        - name: config
+          configMap:
+            name: coredns-config
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: coredns
+  namespace: dns-external
+  annotations:
+    metallb.universe.tf/address-pool: shared-infra
+spec:
+  type: LoadBalancer
+  # loadBalancerIP: 10.0.0.53  # Customize: your DNS VIP
+  selector:
+    app: coredns
+  ports:
+    - name: dns-udp
+      port: 53
+      protocol: UDP
+    - name: dns-tcp
+      port: 53
+      protocol: TCP
