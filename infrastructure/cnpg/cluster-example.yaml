@@ -1,0 +1,59 @@
+# Example: CNPG PostgreSQL Cluster with hardware-aware scheduling
+#
+# This is NOT deployed by default — it's a reference for teams creating
+# PostgreSQL clusters. Copy and customize for your application.
+#
+# The affinity rules ensure PostgreSQL pods land on ECC-memory nodes
+# with fast storage, which is critical for data integrity.
+# Non-ECC RAM can cause silent bit-flips that corrupt database pages.
+apiVersion: postgresql.cnpg.io/v1
+kind: Cluster
+metadata:
+  name: example-pg
+  namespace: default  # Change to your application namespace
+spec:
+  instances: 3
+
+  storage:
+    size: 50Gi
+    # storageClassName: nvme-fast  # Use NVMe-backed StorageClass if available
+
+  # ── Hardware-Aware Scheduling ─────────────────────────────────────────
+  # Require ECC memory for database nodes (prevents silent data corruption).
+  # Prefer NVMe storage for write-ahead log performance.
+  affinity:
+    tolerations:
+      - key: "memory.ecc"
+        operator: "Equal"
+        value: "true"
+        effect: "PreferNoSchedule"
+    nodeAffinity:
+      requiredDuringSchedulingIgnoredDuringExecution:
+        nodeSelectorTerms:
+          - matchExpressions:
+              # Hard requirement: only ECC-memory nodes for databases
+              - key: platform.openplatform.io/memory.ecc
+                operator: In
+                values: ["true"]
+      preferredDuringSchedulingIgnoredDuringExecution:
+        - weight: 100
+          preference:
+            matchExpressions:
+              - key: platform.openplatform.io/workload-class
+                operator: In
+                values: ["database"]
+        - weight: 80
+          preference:
+            matchExpressions:
+              - key: platform.openplatform.io/storage.class
+                operator: In
+                values: ["nvme"]
+
+  # Spread replicas across different physical nodes
+  topologySpreadConstraints:
+    - maxSkew: 1
+      topologyKey: kubernetes.io/hostname
+      whenUnsatisfiable: DoNotSchedule
+      labelSelector:
+        matchLabels:
+          cnpg.io/cluster: example-pg

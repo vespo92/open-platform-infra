@@ -49,4 +49,10 @@
   # ── ZFS Storage (optional) ─────────────────────────────────────────────────
   enableZfs = true;
   zfsPools = [ "tank" ];  # Pool names (must be created manually before first boot)
+
+  # ── Hardware Classification (optional) ─────────────────────────────────────
+  # Optional workload class hint. If unset, the hardware-discovery DaemonSet
+  # auto-classifies based on detected hardware (ECC, GPU, cores, RAM).
+  # Valid values: "database", "gpu", "compute", "general"
+  # nodeClass = "general";
 }

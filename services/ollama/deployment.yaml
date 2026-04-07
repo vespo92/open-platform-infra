@@ -45,14 +45,31 @@ spec:
       labels:
         app: ollama
     spec:
-      # Schedule on GPU nodes
+      # Schedule on GPU nodes — tolerates the GPU taint applied at node
+      # registration (NixOS) and by the hardware-discovery DaemonSet.
+      # Uncomment nodeSelector to REQUIRE GPU nodes, or use affinity for preference.
       # nodeSelector:
-      #   gpu: "true"
-      # tolerations:
-      #   - key: "gpu"
-      #     operator: "Equal"
-      #     value: "true"
-      #     effect: "NoSchedule"
+      #   platform.openplatform.io/gpu.nvidia: "true"
+      tolerations:
+        - key: "gpu"
+          operator: "Equal"
+          value: "true"
+          effect: "NoSchedule"
+      affinity:
+        nodeAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+            - weight: 100
+              preference:
+                matchExpressions:
+                  - key: platform.openplatform.io/workload-class
+                    operator: In
+                    values: ["gpu"]
+            - weight: 50
+              preference:
+                matchExpressions:
+                  - key: platform.openplatform.io/gpu.nvidia
+                    operator: In
+                    values: ["true"]
       containers:
         - name: ollama
           image: ollama/ollama:latest

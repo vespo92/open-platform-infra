@@ -45,16 +45,35 @@ spec:
       labels:
         app: chromadb
     spec:
-      # Prefer scheduling on NVMe nodes for fast vector I/O
-      # affinity:
-      #   nodeAffinity:
-      #     preferredDuringSchedulingIgnoredDuringExecution:
-      #       - weight: 100
-      #         preference:
-      #           matchExpressions:
-      #             - key: storage.type
-      #               operator: In
-      #               values: ["nvme"]
+      # Prefer ECC + NVMe nodes for data integrity and fast vector I/O.
+      # ChromaDB tolerates the ECC PreferNoSchedule taint so it can use
+      # reliable hardware when available.
+      tolerations:
+        - key: "memory.ecc"
+          operator: "Equal"
+          value: "true"
+          effect: "PreferNoSchedule"
+      affinity:
+        nodeAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+            - weight: 100
+              preference:
+                matchExpressions:
+                  - key: platform.openplatform.io/workload-class
+                    operator: In
+                    values: ["database"]
+            - weight: 80
+              preference:
+                matchExpressions:
+                  - key: platform.openplatform.io/memory.ecc
+                    operator: In
+                    values: ["true"]
+            - weight: 60
+              preference:
+                matchExpressions:
+                  - key: platform.openplatform.io/storage.class
+                    operator: In
+                    values: ["nvme"]
       containers:
         - name: chromadb
           image: chromadb/chroma:0.5.23
