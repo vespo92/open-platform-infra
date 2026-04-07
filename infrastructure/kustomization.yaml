@@ -11,3 +11,9 @@ resources:
   - vcluster/helmrelease.yaml
   - coredns/deployment.yaml
   - hardware-discovery/daemonset.yaml
+  - vault/helmrelease.yaml
+  - vault/cluster-secret-store.yaml
+  - external-secrets/helmrelease.yaml
+  - monitoring/helmrelease.yaml
+  - monitoring/loki-helmrelease.yaml
+  - monitoring/alloy-helmrelease.yaml
