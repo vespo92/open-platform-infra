@@ -1,0 +1,58 @@
+apiVersion: source.toolkit.fluxcd.io/v1
+kind: HelmRepository
+metadata:
+  name: external-secrets
+  namespace: flux-system
+spec:
+  interval: 24h
+  url: https://charts.external-secrets.io
+---
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: external-secrets
+  namespace: external-secrets
+spec:
+  interval: 15m
+  timeout: 5m
+  chart:
+    spec:
+      chart: external-secrets
+      version: "0.11.x"
+      sourceRef:
+        kind: HelmRepository
+        name: external-secrets
+        namespace: flux-system
+  install:
+    createNamespace: true
+    remediation:
+      retries: 3
+  upgrade:
+    remediation:
+      retries: 3
+  values:
+    installCRDs: true
+    replicaCount: 1
+    leaderElect: false
+    resources:
+      requests:
+        cpu: 10m
+        memory: 128Mi
+      limits:
+        memory: 256Mi
+    webhook:
+      enabled: true
+      resources:
+        requests:
+          cpu: 10m
+          memory: 32Mi
+        limits:
+          memory: 64Mi
+    certController:
+      enabled: true
+      resources:
+        requests:
+          cpu: 10m
+          memory: 32Mi
+        limits:
+          memory: 64Mi

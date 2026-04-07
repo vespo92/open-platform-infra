@@ -1,0 +1,80 @@
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: alloy
+  namespace: monitoring
+spec:
+  interval: 15m
+  timeout: 5m
+  chart:
+    spec:
+      chart: alloy
+      sourceRef:
+        kind: HelmRepository
+        name: grafana
+        namespace: flux-system
+  install:
+    createNamespace: true
+    remediation:
+      retries: 3
+  upgrade:
+    remediation:
+      retries: 3
+  values:
+    alloy:
+      configMap:
+        content: |
+          // OTLP receiver for telemetry data (Faro, OpenTelemetry SDKs)
+          otelcol.receiver.otlp "default" {
+            grpc {
+              endpoint = "0.0.0.0:4317"
+            }
+            http {
+              endpoint = "0.0.0.0:4318"
+            }
+            output {
+              traces = [otelcol.processor.batch.default.input]
+              metrics = [otelcol.processor.batch.default.input]
+              logs = [otelcol.processor.batch.default.input]
+            }
+          }
+
+          otelcol.processor.batch "default" {
+            timeout = "5s"
+            send_batch_size = 1000
+            output {
+              traces = [otelcol.exporter.loki.default.input]
+              metrics = [otelcol.exporter.prometheus.default.input]
+              logs = [otelcol.exporter.loki.default.input]
+            }
+          }
+
+          otelcol.exporter.loki "default" {
+            forward_to = [loki.write.default.receiver]
+          }
+
+          loki.write "default" {
+            endpoint {
+              url = "http://loki.monitoring.svc.cluster.local:3100/loki/api/v1/push"
+            }
+          }
+
+          otelcol.exporter.prometheus "default" {
+            forward_to = [prometheus.remote_write.default.receiver]
+          }
+
+          prometheus.remote_write "default" {
+            endpoint {
+              url = "http://kube-prometheus-stack-prometheus.monitoring.svc.cluster.local:9090/api/v1/write"
+            }
+          }
+
+          prometheus.exporter.self "alloy" {}
+    controller:
+      replicas: 2
+    resources:
+      requests:
+        cpu: 100m
+        memory: 256Mi
+      limits:
+        memory: 1Gi
