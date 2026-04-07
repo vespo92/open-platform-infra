@@ -1,0 +1,348 @@
+# MCP Server Registry — Dynamic discovery for Model Context Protocol servers
+#
+# Provides a central registry where MCP servers register on startup and
+# clients discover available servers dynamically. Eliminates the need for
+# per-client static configuration of MCP server endpoints.
+#
+# Architecture:
+#   MCP Server (startup) → POST /register {name, url, tools, transport}
+#   MCP Client (discover) → GET /servers → [{name, url, tools, transport}]
+#   Health checks → Registry pings registered servers, removes dead ones
+#
+# Registration API:
+#   POST /api/v1/register
+#     {"name": "brocade-mcp", "url": "http://brocade-mcp.infra:3000", "transport": "sse", "tools": ["get_vlans", "get_interfaces"]}
+#
+#   GET /api/v1/servers
+#     [{"name": "brocade-mcp", "url": "...", "transport": "sse", "tools": [...], "healthy": true}]
+#
+#   GET /api/v1/servers?tag=infrastructure
+#     (filtered by tag)
+#
+#   DELETE /api/v1/servers/{name}
+#     (manual deregistration)
+#
+# Auto-discovery via K8s:
+#   The registry watches for Services with the label `mcp.server/enabled: "true"`
+#   and auto-registers them. MCP servers just need the right label + annotations:
+#
+#   metadata:
+#     labels:
+#       mcp.server/enabled: "true"
+#     annotations:
+#       mcp.server/name: "brocade-mcp"
+#       mcp.server/transport: "sse"       # "sse" or "stdio"
+#       mcp.server/port: "3000"
+#       mcp.server/path: "/mcp"           # optional
+#       mcp.server/tags: "infrastructure,networking"
+#
+# Client config generation:
+#   GET /api/v1/config/claude-code → generates Claude Code MCP settings JSON
+#   GET /api/v1/config/cursor → generates Cursor MCP settings
+#   GET /api/v1/config/vscode → generates VS Code MCP settings
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: mcp-registry
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: mcp-registry
+  namespace: mcp-registry
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: mcp-registry-watcher
+rules:
+  - apiGroups: [""]
+    resources: ["services"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: [""]
+    resources: ["endpoints"]
+    verbs: ["get", "list"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: mcp-registry-watcher
+subjects:
+  - kind: ServiceAccount
+    name: mcp-registry
+    namespace: mcp-registry
+roleRef:
+  kind: ClusterRole
+  name: mcp-registry-watcher
+  apiGroup: rbac.authorization.k8s.io
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: mcp-registry-config
+  namespace: mcp-registry
+data:
+  config.json: |
+    {
+      "port": 3000,
+      "healthCheckInterval": 30,
+      "healthCheckTimeout": 5,
+      "staleServerTimeout": 300,
+      "kubeWatch": true,
+      "kubeLabel": "mcp.server/enabled",
+      "cors": {
+        "origin": "*"
+      }
+    }
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: mcp-registry
+  namespace: mcp-registry
+  labels:
+    app: mcp-registry
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: mcp-registry
+  template:
+    metadata:
+      labels:
+        app: mcp-registry
+    spec:
+      serviceAccountName: mcp-registry
+      containers:
+        - name: mcp-registry
+          # Build from: github.com/your-org/mcp-registry (Bun + TypeScript)
+          # Or use the placeholder init container below until the image is built
+          image: oven/bun:latest
+          command: ["bun", "run", "/app/index.ts"]
+          ports:
+            - containerPort: 3000
+          env:
+            - name: CONFIG_PATH
+              value: "/etc/mcp-registry/config.json"
+            - name: KUBE_WATCH
+              value: "true"
+          volumeMounts:
+            - name: config
+              mountPath: /etc/mcp-registry
+            - name: app
+              mountPath: /app
+          resources:
+            requests:
+              memory: "128Mi"
+              cpu: "50m"
+            limits:
+              memory: "256Mi"
+              cpu: "250m"
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 3000
+            initialDelaySeconds: 5
+            periodSeconds: 30
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 3000
+            initialDelaySeconds: 3
+            periodSeconds: 10
+      volumes:
+        - name: config
+          configMap:
+            name: mcp-registry-config
+        - name: app
+          configMap:
+            name: mcp-registry-app
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: mcp-registry-app
+  namespace: mcp-registry
+data:
+  package.json: |
+    {
+      "name": "mcp-registry",
+      "version": "0.1.0",
+      "dependencies": {
+        "elysia": "^1.0.0",
+        "@elysiajs/cors": "^1.0.0"
+      }
+    }
+
+  index.ts: |
+    import { Elysia } from "elysia";
+    import { cors } from "@elysiajs/cors";
+    import { readFileSync } from "fs";
+
+    interface McpServer {
+      name: string;
+      url: string;
+      transport: "sse" | "stdio" | "streamable-http";
+      tools: string[];
+      tags: string[];
+      healthy: boolean;
+      lastSeen: number;
+      source: "manual" | "kubernetes";
+    }
+
+    const config = JSON.parse(
+      readFileSync(process.env.CONFIG_PATH || "/etc/mcp-registry/config.json", "utf-8")
+    );
+
+    const servers = new Map<string, McpServer>();
+
+    // Health check loop
+    setInterval(async () => {
+      const now = Date.now();
+      for (const [name, server] of servers) {
+        // Remove stale servers
+        if (now - server.lastSeen > config.staleServerTimeout * 1000) {
+          console.log(`Removing stale server: ${name}`);
+          servers.delete(name);
+          continue;
+        }
+        // Ping healthy servers
+        try {
+          const resp = await fetch(server.url, { signal: AbortSignal.timeout(config.healthCheckTimeout * 1000) });
+          server.healthy = resp.ok;
+        } catch {
+          server.healthy = false;
+        }
+      }
+    }, config.healthCheckInterval * 1000);
+
+    // K8s service watcher (if enabled)
+    if (config.kubeWatch && process.env.KUBERNETES_SERVICE_HOST) {
+      const watchServices = async () => {
+        try {
+          const token = readFileSync("/var/run/secrets/kubernetes.io/serviceaccount/token", "utf-8");
+          const ca = readFileSync("/var/run/secrets/kubernetes.io/serviceaccount/ca.crt", "utf-8");
+          const host = process.env.KUBERNETES_SERVICE_HOST;
+          const port = process.env.KUBERNETES_SERVICE_PORT;
+
+          const resp = await fetch(
+            `https://${host}:${port}/api/v1/services?labelSelector=${config.kubeLabel}%3Dtrue`,
+            { headers: { Authorization: `Bearer ${token}` }, tls: { ca } }
+          );
+          const data = await resp.json() as any;
+
+          for (const svc of data.items || []) {
+            const ann = svc.metadata?.annotations || {};
+            const name = ann["mcp.server/name"] || svc.metadata.name;
+            const transport = ann["mcp.server/transport"] || "sse";
+            const mcpPort = ann["mcp.server/port"] || "3000";
+            const path = ann["mcp.server/path"] || "";
+            const tags = (ann["mcp.server/tags"] || "").split(",").filter(Boolean);
+            const ns = svc.metadata.namespace;
+            const url = `http://${svc.metadata.name}.${ns}.svc:${mcpPort}${path}`;
+
+            servers.set(name, {
+              name, url, transport: transport as any, tools: [], tags,
+              healthy: true, lastSeen: Date.now(), source: "kubernetes"
+            });
+          }
+        } catch (e) {
+          console.error("K8s watch error:", e);
+        }
+      };
+
+      // Initial scan + periodic refresh
+      watchServices();
+      setInterval(watchServices, 60000);
+    }
+
+    const app = new Elysia()
+      .use(cors())
+      .get("/health", () => ({ status: "ok", servers: servers.size }))
+
+      // List all servers (optionally filter by tag)
+      .get("/api/v1/servers", ({ query }) => {
+        let result = Array.from(servers.values());
+        if (query.tag) {
+          result = result.filter(s => s.tags.includes(query.tag as string));
+        }
+        if (query.healthy === "true") {
+          result = result.filter(s => s.healthy);
+        }
+        return result;
+      })
+
+      // Register a server
+      .post("/api/v1/register", ({ body }: { body: any }) => {
+        const { name, url, transport = "sse", tools = [], tags = [] } = body;
+        if (!name || !url) return { error: "name and url required" };
+        servers.set(name, {
+          name, url, transport, tools, tags,
+          healthy: true, lastSeen: Date.now(), source: "manual"
+        });
+        console.log(`Registered: ${name} → ${url} (${transport})`);
+        return { ok: true, name };
+      })
+
+      // Heartbeat (servers call this periodically)
+      .post("/api/v1/heartbeat/:name", ({ params }) => {
+        const server = servers.get(params.name);
+        if (server) {
+          server.lastSeen = Date.now();
+          server.healthy = true;
+          return { ok: true };
+        }
+        return { error: "not found" };
+      })
+
+      // Deregister
+      .delete("/api/v1/servers/:name", ({ params }) => {
+        servers.delete(params.name);
+        return { ok: true };
+      })
+
+      // Generate Claude Code MCP config
+      .get("/api/v1/config/claude-code", () => {
+        const mcpServers: Record<string, any> = {};
+        for (const server of servers.values()) {
+          if (!server.healthy) continue;
+          if (server.transport === "sse") {
+            mcpServers[server.name] = { url: server.url, transport: "sse" };
+          }
+        }
+        return { mcpServers };
+      })
+
+      // Generate generic MCP config (VS Code / Cursor format)
+      .get("/api/v1/config/generic", () => {
+        const result: Record<string, any> = {};
+        for (const server of servers.values()) {
+          if (!server.healthy) continue;
+          result[server.name] = {
+            url: server.url,
+            transport: server.transport,
+            tools: server.tools
+          };
+        }
+        return result;
+      })
+
+      .listen(config.port);
+
+    console.log(`MCP Registry listening on :${config.port}`);
+    console.log(`  K8s watch: ${config.kubeWatch}`);
+    console.log(`  Health check: every ${config.healthCheckInterval}s`);
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: mcp-registry
+  namespace: mcp-registry
+spec:
+  type: ClusterIP
+  selector:
+    app: mcp-registry
+  ports:
+    - name: http
+      port: 3000
+      targetPort: 3000

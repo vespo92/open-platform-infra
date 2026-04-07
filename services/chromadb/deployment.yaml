@@ -1,0 +1,114 @@
+# ChromaDB — Vector Database for AI/ML workloads
+#
+# Stores embeddings for semantic search across:
+# - Engineering project files (CAD, permits, walkouts)
+# - Email archives (Exchange EDB + user PSTs)
+# - Documentation and institutional knowledge
+#
+# All apps consume via: http://chromadb.chromadb.svc:8000/api/v1/
+#
+# Storage: persistent volume on NVMe (fast vector queries)
+# Embedding: uses LiteLLM as embedding backend (models: local-embed or claude)
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: chromadb
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: chromadb-data
+  namespace: chromadb
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 50Gi
+  # Customize: use a StorageClass backed by NVMe for fast vector queries
+  # storageClassName: nvme-fast
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: chromadb
+  namespace: chromadb
+  labels:
+    app: chromadb
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: chromadb
+  template:
+    metadata:
+      labels:
+        app: chromadb
+    spec:
+      # Prefer scheduling on NVMe nodes for fast vector I/O
+      # affinity:
+      #   nodeAffinity:
+      #     preferredDuringSchedulingIgnoredDuringExecution:
+      #       - weight: 100
+      #         preference:
+      #           matchExpressions:
+      #             - key: storage.type
+      #               operator: In
+      #               values: ["nvme"]
+      containers:
+        - name: chromadb
+          image: chromadb/chroma:0.5.23
+          ports:
+            - containerPort: 8000
+          env:
+            - name: IS_PERSISTENT
+              value: "TRUE"
+            - name: PERSIST_DIRECTORY
+              value: "/chroma/chroma"
+            - name: ANONYMIZED_TELEMETRY
+              value: "FALSE"
+            # Authentication (optional)
+            # - name: CHROMA_SERVER_AUTHN_PROVIDER
+            #   value: "chromadb.auth.token_authn.TokenAuthenticationServerProvider"
+            # - name: CHROMA_SERVER_AUTHN_CREDENTIALS
+            #   value: "your-auth-token"
+          volumeMounts:
+            - name: data
+              mountPath: /chroma/chroma
+          resources:
+            requests:
+              memory: "512Mi"
+              cpu: "250m"
+            limits:
+              memory: "2Gi"
+              cpu: "2000m"
+          livenessProbe:
+            httpGet:
+              path: /api/v1/heartbeat
+              port: 8000
+            initialDelaySeconds: 10
+            periodSeconds: 30
+          readinessProbe:
+            httpGet:
+              path: /api/v1/heartbeat
+              port: 8000
+            initialDelaySeconds: 5
+            periodSeconds: 10
+      volumes:
+        - name: data
+          persistentVolumeClaim:
+            claimName: chromadb-data
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: chromadb
+  namespace: chromadb
+spec:
+  type: ClusterIP
+  selector:
+    app: chromadb
+  ports:
+    - name: http
+      port: 8000
+      targetPort: 8000

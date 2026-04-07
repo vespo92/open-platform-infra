@@ -15,6 +15,30 @@ Bare-metal infrastructure layer for [Open Platform](https://github.com/Trevato/o
 | **Security** | cert-manager, Let's Encrypt | TLS certificate automation |
 | **DNS** | CoreDNS | Internal + external resolution |
 
+## Shared Services (AI / Data Layer)
+
+In addition to core infrastructure, this repo provides shared AI and data services consumed by all tenants:
+
+| Service | Namespace | Port | Purpose |
+|---------|-----------|------|---------|
+| **LiteLLM** | `litellm` | 4000 | Unified AI gateway (Claude, Ollama, OpenAI behind one API) |
+| **ChromaDB** | `chromadb` | 8000 | Vector database for semantic search and embeddings |
+| **Ollama** | `ollama` | 11434 | Local LLM inference on GPU nodes |
+| **MCP Registry** | `mcp-registry` | 3000 | Dynamic MCP server discovery and client config generation |
+
+### MCP Registry
+
+The MCP Registry provides automatic discovery for Model Context Protocol servers running anywhere in the cluster. MCP servers register via:
+
+1. **K8s labels** (automatic) — add `mcp.server/enabled: "true"` to any Service
+2. **HTTP API** (manual) — `POST /api/v1/register`
+
+Clients get auto-generated config:
+```bash
+# Generate Claude Code MCP settings
+curl http://mcp-registry.mcp-registry.svc:3000/api/v1/config/claude-code
+```
+
 ## What this does NOT manage
 
 - Open Platform services (Forgejo, Woodpecker, etc.) — OP deploys itself

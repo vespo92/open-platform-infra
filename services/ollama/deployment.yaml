@@ -1,0 +1,136 @@
+# Ollama — Local LLM Inference (GPU-accelerated)
+#
+# Runs open-source models locally on GPU nodes.
+# LiteLLM routes requests to Ollama for local/free inference.
+#
+# Models are pulled on first request or via init container.
+# Storage persists downloaded models across pod restarts.
+#
+# Consumed via LiteLLM (preferred) or directly:
+#   curl http://ollama.ollama.svc:11434/api/generate \
+#     -d '{"model": "llama3.1", "prompt": "hello"}'
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: ollama
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: ollama-models
+  namespace: ollama
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 100Gi
+  # Customize: use NVMe-backed StorageClass for fast model loading
+  # storageClassName: nvme-fast
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ollama
+  namespace: ollama
+  labels:
+    app: ollama
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: ollama
+  template:
+    metadata:
+      labels:
+        app: ollama
+    spec:
+      # Schedule on GPU nodes
+      # nodeSelector:
+      #   gpu: "true"
+      # tolerations:
+      #   - key: "gpu"
+      #     operator: "Equal"
+      #     value: "true"
+      #     effect: "NoSchedule"
+      containers:
+        - name: ollama
+          image: ollama/ollama:latest
+          ports:
+            - containerPort: 11434
+          env:
+            - name: OLLAMA_HOST
+              value: "0.0.0.0:11434"
+            # GPU memory fraction (0.0-1.0, leave headroom for other GPU workloads)
+            # - name: OLLAMA_GPU_MEMORY_FRACTION
+            #   value: "0.8"
+          volumeMounts:
+            - name: models
+              mountPath: /root/.ollama
+          resources:
+            requests:
+              memory: "4Gi"
+              cpu: "2000m"
+            limits:
+              memory: "32Gi"
+              cpu: "8000m"
+              # Uncomment when NVIDIA device plugin is deployed:
+              # nvidia.com/gpu: "1"
+          livenessProbe:
+            httpGet:
+              path: /api/tags
+              port: 11434
+            initialDelaySeconds: 30
+            periodSeconds: 60
+          readinessProbe:
+            httpGet:
+              path: /api/tags
+              port: 11434
+            initialDelaySeconds: 10
+            periodSeconds: 30
+      volumes:
+        - name: models
+          persistentVolumeClaim:
+            claimName: ollama-models
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: ollama
+  namespace: ollama
+spec:
+  type: ClusterIP
+  selector:
+    app: ollama
+  ports:
+    - name: http
+      port: 11434
+      targetPort: 11434
+---
+# Model pre-pull job — run after deployment to download models
+# kubectl apply -f this, or: kubectl create job ollama-pull --from=cronjob/ollama-pull -n ollama
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: ollama-pull-models
+  namespace: ollama
+spec:
+  template:
+    spec:
+      restartPolicy: OnFailure
+      containers:
+        - name: pull
+          image: curlimages/curl:latest
+          command:
+            - /bin/sh
+            - -c
+            - |
+              echo "Pulling models..."
+              # Embedding model (small, fast, for ChromaDB)
+              curl -s http://ollama.ollama.svc:11434/api/pull -d '{"name": "nomic-embed-text"}'
+              echo ""
+              # General purpose model
+              curl -s http://ollama.ollama.svc:11434/api/pull -d '{"name": "llama3.1"}'
+              echo ""
+              echo "Models pulled:"
+              curl -s http://ollama.ollama.svc:11434/api/tags | jq '.models[].name'
