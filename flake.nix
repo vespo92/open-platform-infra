@@ -103,6 +103,8 @@
           helm
           jq
           fluxcd
+          cilium-cli
+          hubble
         ];
       };
     };

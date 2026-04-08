@@ -1,0 +1,127 @@
+# Cilium CNI — eBPF-based networking, observability, and security
+#
+# Replaces: Flannel (CNI), kube-proxy (service routing), k3s network policy
+# Provides: L3/L4/L7 network policy, Hubble observability, native routing
+#
+# k3s is configured with:
+#   --flannel-backend=none --disable-network-policy
+# so Cilium is the sole CNI and policy engine.
+#
+# IMPORTANT: Cilium must be deployed BEFORE any workloads. Nodes will be
+# NotReady until Cilium is running (no CNI = no pod networking).
+apiVersion: source.toolkit.fluxcd.io/v1
+kind: HelmRepository
+metadata:
+  name: cilium
+  namespace: flux-system
+spec:
+  interval: 24h
+  url: https://helm.cilium.io/
+---
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: cilium
+  namespace: kube-system
+spec:
+  interval: 15m
+  timeout: 10m
+  chart:
+    spec:
+      chart: cilium
+      version: "1.16.*"
+      sourceRef:
+        kind: HelmRepository
+        name: cilium
+        namespace: flux-system
+  install:
+    remediation:
+      retries: 3
+  upgrade:
+    remediation:
+      retries: 3
+
+  values:
+    # ── Cluster identity ────────────────────────────────────────
+    cluster:
+      name: open-platform
+      id: 1
+
+    # ── k3s integration ─────────────────────────────────────────
+    # k3s uses its own containerd socket path
+    cni:
+      binPath: /var/lib/rancher/k3s/data/current/bin
+      confPath: /var/lib/rancher/k3s/agent/etc/cni/net.d
+
+    # k3s wraps containerd — use its socket
+    containerRuntime:
+      integration: containerd
+      socketPath: /run/k3s/containerd/containerd.sock
+
+    # ── Routing mode ────────────────────────────────────────────
+    # Native routing: no VXLAN encapsulation overhead on bare-metal.
+    # Pods route directly using the node's routing table.
+    # Falls back to VXLAN tunneling if nodes can't route pod CIDRs directly.
+    routingMode: native
+    ipv4NativeRoutingCIDR: "10.42.0.0/16"
+    autoDirectNodeRoutes: true
+
+    # ── kube-proxy replacement ──────────────────────────────────
+    # eBPF-based service routing (faster than iptables kube-proxy).
+    # k3s must NOT be started with --disable kube-proxy since k3s
+    # embeds kube-proxy — instead we tell Cilium to take over.
+    kubeProxyReplacement: true
+    k8sServiceHost: "127.0.0.1"
+    k8sServicePort: "6443"
+
+    # ── IPAM ────────────────────────────────────────────────────
+    # Let Kubernetes handle pod IP allocation (k3s node CIDR).
+    ipam:
+      mode: kubernetes
+
+    # ── Security ────────────────────────────────────────────────
+    # Enable network policy enforcement (L3/L4 by default, L7 available)
+    policyEnforcementMode: default
+
+    # ── Hubble (observability) ──────────────────────────────────
+    # Real-time flow visibility — replaces tcpdump for pod traffic debugging.
+    hubble:
+      enabled: true
+      relay:
+        enabled: true
+      ui:
+        enabled: true
+      metrics:
+        enabled:
+          - dns
+          - drop
+          - tcp
+          - flow
+          - icmp
+          - httpV2:exemplars=true;labelsContext=source_ip,source_namespace,source_workload,destination_ip,destination_namespace,destination_workload
+
+    # ── Operator ────────────────────────────────────────────────
+    operator:
+      replicas: 1  # Increase for HA (2+)
+
+    # ── BPF settings ────────────────────────────────────────────
+    bpf:
+      masquerade: true
+      hostLegacyRouting: false
+
+    # ── Node-to-node encryption (optional) ──────────────────────
+    # Uncomment to enable transparent WireGuard encryption between nodes.
+    # Adds ~5% CPU overhead but encrypts all pod-to-pod cross-node traffic.
+    # encryption:
+    #   enabled: true
+    #   type: wireguard
+    #   wireguard:
+    #     userspaceFallback: false
+
+    # ── Resource limits ─────────────────────────────────────────
+    resources:
+      requests:
+        cpu: 100m
+        memory: 256Mi
+      limits:
+        memory: 1Gi

@@ -77,7 +77,13 @@ in
     "usb_storage" "uas" "megaraid_sas"
     "tg3" "bnx2x" "igb" "ixgbe" "e1000e" "i40e"
   ];
-  boot.kernelModules = [ "kvm-intel" "kvm-amd" "bonding" "8021q" ];
+  boot.kernelModules = [
+    "kvm-intel" "kvm-amd" "bonding" "8021q"
+    # Cilium eBPF requirements
+    "br_netfilter" "ip_tables" "xt_socket"
+    "ip_vs" "ip_vs_rr" "ip_vs_wrr" "ip_vs_sh"
+    "nf_conntrack" "overlay"
+  ];
 
   boot.kernelParams = [ "console=tty0" "console=ttyS0,115200n8" "boot.shell_on_fail" ]
     ++ lib.optionals (nodeAttr "enableKvm" false) [ "hugepagesz=2M" "hugepages=4096" ];
@@ -252,7 +258,11 @@ in
   } // lib.optionalAttrs (node.k3sServerAddr != "") {
     serverAddr = node.k3sServerAddr;
     extraFlags = [
-      "--disable" "servicelb"  # Use MetalLB instead
+      "--disable" "servicelb"          # Use MetalLB instead
+      "--flannel-backend=none"         # Cilium replaces Flannel
+      "--disable-network-policy"       # Cilium replaces k3s network policy
+      "--disable" "traefik"            # We deploy Traefik via Helm for more control
+      "--write-kubeconfig-mode" "0644" # Readable kubeconfig for Cilium install
     ]
     # ── Hardware-derived node labels ──
     # These propagate node-config.nix capabilities into Kubernetes at registration.
@@ -318,26 +328,37 @@ in
       2379 2380    # etcd HA (server nodes)
       10250        # kubelet
       6443         # K8s API
+      4240         # Cilium agent health
+      4244         # Hubble relay
+      4245         # Hubble relay (TLS)
     ] ++ lib.optionals (nodeAttr "enableEdge" false) [
       80 443       # Traefik (MetalLB edge)
       7946 7472    # MetalLB memberlist
     ];
     allowedUDPPorts = [
-      8472         # flannel VXLAN (cross-node pod networking)
+      8472         # Cilium VXLAN overlay (or native routing, but needed for fallback)
     ] ++ lib.optionals (nodeAttr "enableEdge" false) [
       7946 7472    # MetalLB memberlist
     ];
-    trustedInterfaces = [ "cni0" "flannel.1" ]
+    # Cilium creates cilium_host/cilium_net/lxc* veth pairs for pod networking
+    trustedInterfaces = [ "cilium_host" "cilium_net" "cilium_vxlan" ]
       ++ lib.optionals (nodeAttr "enableKvm" false) [ "br-vms" "virbr0" ];
   };
 
-  # Edge: loose rpfilter + connmark for MetalLB through stateful firewall
-  networking.firewall.checkReversePath = lib.mkIf (nodeAttr "enableEdge" false) "loose";
-
-  boot.kernel.sysctl = lib.mkIf (nodeAttr "enableEdge" false) {
+  # Cilium requires forwarding and BPF JIT
+  boot.kernel.sysctl = {
+    "net.ipv4.ip_forward" = 1;
+    "net.ipv6.conf.all.forwarding" = 1;
+    "net.bridge.bridge-nf-call-iptables" = 1;
+    "net.bridge.bridge-nf-call-ip6tables" = 1;
+    "net.core.bpf_jit_enable" = 1;
+  } // lib.optionalAttrs (nodeAttr "enableEdge" false) {
+    # Edge: loose rpfilter for MetalLB through stateful firewall
     "net.ipv4.conf.all.rp_filter" = 2;
     "net.ipv4.conf.default.rp_filter" = 2;
   };
+
+  networking.firewall.checkReversePath = lib.mkIf (nodeAttr "enableEdge" false) "loose";
 
   # Connmark: mark incoming edge traffic, restore on response
   networking.firewall.extraCommands = lib.mkIf (nodeAttr "enableEdge" false) (lib.mkAfter ''

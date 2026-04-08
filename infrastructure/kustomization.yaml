@@ -1,6 +1,9 @@
 apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
 resources:
+  # Cilium MUST be first — nodes are NotReady without a CNI
+  - cilium/helmrelease.yaml
+  - cilium/network-policies.yaml
   - traefik/helmrelease.yaml
   - metallb/helmrelease.yaml
   - metallb/config.yaml
