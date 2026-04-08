@@ -1,4 +1,4 @@
-# Example: First control-plane node (HA etcd + K3s server)
+# Example: First control-plane node (init controller — bootstraps the cluster)
 {
   hostname = "node-1";
   hostId = "a1b2c3d4";  # head -c4 /dev/urandom | od -A none -t x4 | tr -d ' '
@@ -12,9 +12,11 @@
   storageAddress = "10.0.32.10/20";
   migrationAddress = "10.0.254.10/24";
 
-  k3sRole = "server";
-  k3sServerAddr = "";  # Empty = first node (cluster-init)
-  k3sTokenFile = "/etc/k3s-token";
+  k0sRole = "controller+worker";
+  k0sTokenFile = "";  # Empty = init controller (first node bootstraps the cluster)
+  # After bootstrap, generate join tokens for other nodes:
+  #   k0s token create --role=controller > /etc/k0s/controller-token
+  #   k0s token create --role=worker > /etc/k0s/worker-token
 
   enableEdge = true;
   edgeInterface = "eno3";

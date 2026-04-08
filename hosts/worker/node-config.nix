@@ -20,10 +20,13 @@
   storageAddress = "10.0.32.10/20";             # VLAN 102
   migrationAddress = "10.0.254.10/24";          # VLAN 900 (live migration)
 
-  # ── K3s ─────────────────────────────────────────────────────────────────────
-  k3sRole = "server";                            # "server" (control-plane + etcd) or "agent"
-  k3sServerAddr = "https://10.0.0.10:6443";     # First node's API server
-  k3sTokenFile = "/etc/k3s-token";               # Shared cluster token
+  # ── k0s ─────────────────────────────────────────────────────────────────────
+  k0sRole = "controller+worker";                 # "controller+worker" (control-plane + workloads) or "worker"
+  k0sTokenFile = "";                             # Join token path; empty = init controller (first node)
+  # For joining nodes, set: k0sTokenFile = "/etc/k0s/join-token";
+  # Generate tokens on the init controller:
+  #   k0s token create --role=controller > controller-token
+  #   k0s token create --role=worker > worker-token
 
   # ── Edge Networking (optional, for MetalLB + external ingress) ──────────────
   # Enable if this node participates in MetalLB L2 advertisement

@@ -35,7 +35,7 @@
     in
     {
       # ── PXE Netboot Installer ─────────────────────────────────
-      # Boots in RAM, auto-installs NixOS to disk, reboots into K3s node.
+      # Boots in RAM, auto-installs NixOS to disk, reboots into k0s node.
       #
       # Build: nix build .#netboot-kernel .#netboot-initrd
       # Deploy to PXE server:
@@ -98,6 +98,8 @@
       devShells.${system}.default = pkgs.mkShell {
         buildInputs = with pkgs; [
           nixos-rebuild
+          k0s
+          k0sctl
           kubectl
           k9s
           helm

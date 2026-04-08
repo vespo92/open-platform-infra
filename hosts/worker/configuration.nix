@@ -1,7 +1,7 @@
-# Generic K3s Node — Dynamic Configuration
+# Generic k0s Node — Dynamic Configuration
 #
-# Universal NixOS config for all K3s nodes (control-plane and agents).
-# The k3sRole in node-config.nix determines the node's role.
+# Universal NixOS config for all k0s nodes (controllers and workers).
+# The k0sRole in node-config.nix determines the node's role.
 #
 # Node-specific values come from /etc/nixos/node-config.nix.
 # PXE auto-installer drops that file; everything else is identical.
@@ -9,7 +9,7 @@
 # To deploy a new node:
 #   1. PXE boot (or manual install with NixOS ISO)
 #   2. Place /etc/nixos/node-config.nix with node-specific values
-#   3. Place /etc/k3s-token with the cluster join token
+#   3. Place /etc/k0s/join-token with the cluster join token (not needed for init controller)
 #   4. nixos-rebuild switch --no-flake
 { config, pkgs, lib, ... }:
 
@@ -21,7 +21,7 @@ let
     then import nodeConfigPath
     else {
       # Sane defaults for first boot / PXE environment
-      hostname = "k3s-node";
+      hostname = "k0s-node";
       hostId = "abcd1234";
       primaryInterface = "eno1";
       primaryAddress = "10.0.0.99/20";
@@ -30,9 +30,8 @@ let
       sfpInterfaces = [ "enp5s0f0" "enp5s0f1" ];
       storageAddress = "10.0.32.99/20";
       migrationAddress = "10.0.254.99/24";
-      k3sRole = "agent";
-      k3sServerAddr = "https://10.0.0.10:6443";
-      k3sTokenFile = "/etc/k3s-token";
+      k0sRole = "worker";
+      k0sTokenFile = "/etc/k0s/join-token";
       enableEdge = false;
       edgeInterface = "eno3";
       edgeAddress = "10.0.16.99/20";
@@ -77,7 +76,7 @@ in
     "usb_storage" "uas" "megaraid_sas"
     "tg3" "bnx2x" "igb" "ixgbe" "e1000e" "i40e"
   ];
-  boot.kernelModules = [ "kvm-intel" "kvm-amd" "bonding" "8021q" ];
+  boot.kernelModules = [ "kvm-intel" "kvm-amd" "bonding" "8021q" "br_netfilter" "ip_vs" "ip_vs_rr" "ip_vs_wrr" "ip_vs_sh" ];
 
   boot.kernelParams = [ "console=tty0" "console=ttyS0,115200n8" "boot.shell_on_fail" ]
     ++ lib.optionals (nodeAttr "enableKvm" false) [ "hugepagesz=2M" "hugepages=4096" ];
@@ -242,37 +241,107 @@ in
   ];
 
   # ═══════════════════════════════════════════════════════════
-  # K3s
+  # k0s
   # ═══════════════════════════════════════════════════════════
 
-  services.k3s = {
-    enable = true;
-    role = node.k3sRole;
-    tokenFile = node.k3sTokenFile;
-  } // lib.optionalAttrs (node.k3sServerAddr != "") {
-    serverAddr = node.k3sServerAddr;
-    extraFlags = [
-      "--disable" "servicelb"  # Use MetalLB instead
-    ]
-    # ── Hardware-derived node labels ──
-    # These propagate node-config.nix capabilities into Kubernetes at registration.
-    # The hardware-discovery DaemonSet adds runtime-detected labels (ECC, NVMe, etc.)
-    # on top of these static labels.
-    ++ [ "--node-label" "platform.openplatform.io/10g=${lib.boolToString node.enable10g}" ]
-    ++ [ "--node-label" "platform.openplatform.io/edge=${lib.boolToString (nodeAttr "enableEdge" false)}" ]
-    ++ [ "--node-label" "platform.openplatform.io/kvm=${lib.boolToString (nodeAttr "enableKvm" false)}" ]
-    ++ [ "--node-label" "platform.openplatform.io/gpu.enabled=${lib.boolToString (nodeAttr "enableGpu" false)}" ]
-    ++ [ "--node-label" "platform.openplatform.io/zfs=${lib.boolToString (nodeAttr "enableZfs" false)}" ]
-    ++ [ "--node-label" "platform.openplatform.io/role=${node.k3sRole}" ]
-    ++ lib.optionals (nodeAttr "nodeClass" null != null) [
-      "--node-label" "platform.openplatform.io/node-class=${node.nodeClass}"
-    ]
-    # ── GPU taint at registration ──
-    # Ensures GPU nodes are protected from the moment they join the cluster,
-    # before the hardware-discovery DaemonSet runs.
-    ++ lib.optionals (nodeAttr "enableGpu" false) [
-      "--node-taint" "gpu=true:NoSchedule"
-    ];
+  # Role helpers
+  # k0sRole values: "controller+worker" (control-plane + workloads) or "worker"
+  # The init controller (first node) has k0sTokenFile = "" (no join token).
+
+  # ── Hardware-derived node labels ──
+  # These propagate node-config.nix capabilities into Kubernetes at registration.
+  # The hardware-discovery DaemonSet adds runtime-detected labels (ECC, NVMe, etc.)
+  # on top of these static labels.
+
+  # ── GPU taint at registration ──
+  # Ensures GPU nodes are protected from the moment they join the cluster,
+  # before the hardware-discovery DaemonSet runs.
+
+  # k0s cluster config (used by controller nodes)
+  environment.etc."k0s/k0s.yaml" = lib.mkIf (builtins.elem node.k0sRole ["controller" "controller+worker"]) {
+    text = ''
+      apiVersion: k0s.k0sproject.io/v1beta1
+      kind: ClusterConfig
+      metadata:
+        name: open-platform
+      spec:
+        api:
+          port: 6443
+          k0sApiPort: 9443
+          address: ${nodeIP}
+          sans:
+            - ${nodeIP}
+        network:
+          provider: kuberouter
+          podCIDR: "10.42.0.0/16"
+          serviceCIDR: "10.43.0.0/16"
+          kubeRouter:
+            autoMTU: true
+        storage:
+          type: etcd
+          etcd:
+            peerAddress: ${nodeIP}
+    '';
+  };
+
+  systemd.services.k0s =
+    let
+      isController = builtins.elem node.k0sRole ["controller" "controller+worker"];
+      enableWorker = node.k0sRole == "controller+worker";
+      hasToken = node.k0sTokenFile != "";
+
+      nodeLabels = builtins.concatStringsSep "," ([
+        "platform.openplatform.io/10g=${lib.boolToString node.enable10g}"
+        "platform.openplatform.io/edge=${lib.boolToString (nodeAttr "enableEdge" false)}"
+        "platform.openplatform.io/kvm=${lib.boolToString (nodeAttr "enableKvm" false)}"
+        "platform.openplatform.io/gpu.enabled=${lib.boolToString (nodeAttr "enableGpu" false)}"
+        "platform.openplatform.io/zfs=${lib.boolToString (nodeAttr "enableZfs" false)}"
+        "platform.openplatform.io/role=${node.k0sRole}"
+      ] ++ lib.optionals (nodeAttr "nodeClass" null != null) [
+        "platform.openplatform.io/node-class=${node.nodeClass}"
+      ]);
+
+      nodeTaints = lib.concatStringsSep "," (
+        lib.optionals (nodeAttr "enableGpu" false) [ "gpu=true:NoSchedule" ]
+      );
+
+      k0sFlags =
+        if isController then
+          [ "controller" "--config=/etc/k0s/k0s.yaml" ]
+          ++ lib.optionals enableWorker [ "--enable-worker" ]
+          ++ lib.optionals hasToken [ "--token-file=${node.k0sTokenFile}" ]
+          ++ lib.optionals enableWorker [ "--labels=${nodeLabels}" ]
+          ++ lib.optionals (enableWorker && nodeTaints != "") [ "--taints=${nodeTaints}" ]
+        else
+          [ "worker" "--token-file=${node.k0sTokenFile}" ]
+          ++ [ "--labels=${nodeLabels}" ]
+          ++ lib.optionals (nodeTaints != "") [ "--taints=${nodeTaints}" ];
+    in
+    {
+      description = "k0s - Zero Friction Kubernetes";
+      after = [ "network-online.target" ];
+      wants = [ "network-online.target" ];
+      wantedBy = [ "multi-user.target" ];
+
+      serviceConfig = {
+        ExecStart = lib.concatStringsSep " " ([ "${pkgs.k0s}/bin/k0s" ] ++ k0sFlags);
+        Restart = "always";
+        RestartSec = "5s";
+        KillMode = "process";
+        Delegate = "yes";
+        LimitNOFILE = "infinity";
+        LimitNPROC = "infinity";
+        LimitCORE = "infinity";
+        TasksMax = "infinity";
+        TimeoutStartSec = 0;
+      };
+
+      path = with pkgs; [ iptables iproute2 kmod util-linux coreutils ];
+    };
+
+  # Set KUBECONFIG for controller nodes so kubectl works out of the box
+  environment.sessionVariables = lib.mkIf (builtins.elem node.k0sRole ["controller" "controller+worker"]) {
+    KUBECONFIG = "/var/lib/k0s/pki/admin.conf";
   };
 
   # ═══════════════════════════════════════════════════════════
@@ -315,19 +384,20 @@ in
     enable = true;
     allowPing = true;
     allowedTCPPorts = [
-      2379 2380    # etcd HA (server nodes)
-      10250        # kubelet
+      2380         # etcd peer communication (controller nodes)
       6443         # K8s API
+      9443         # k0s controller join API
+      8132         # konnectivity (worker→controller communication)
+      10250        # kubelet
     ] ++ lib.optionals (nodeAttr "enableEdge" false) [
       80 443       # Traefik (MetalLB edge)
       7946 7472    # MetalLB memberlist
     ];
-    allowedUDPPorts = [
-      8472         # flannel VXLAN (cross-node pod networking)
-    ] ++ lib.optionals (nodeAttr "enableEdge" false) [
+    allowedUDPPorts = lib.optionals (nodeAttr "enableEdge" false) [
       7946 7472    # MetalLB memberlist
     ];
-    trustedInterfaces = [ "cni0" "flannel.1" ]
+    # kube-bridge: k0s kube-router pod networking bridge
+    trustedInterfaces = [ "kube-bridge" ]
       ++ lib.optionals (nodeAttr "enableKvm" false) [ "br-vms" "virbr0" ];
   };
 
@@ -409,6 +479,7 @@ in
 
   environment.systemPackages = with pkgs; [
     vim git curl wget htop tmux jq
+    k0s kubectl
     pciutils usbutils smartmontools nvme-cli
     ethtool iproute2 tcpdump iperf3
     traceroute lsof
