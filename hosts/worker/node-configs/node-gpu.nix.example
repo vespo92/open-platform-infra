@@ -12,9 +12,8 @@
   storageAddress = "10.0.32.12/20";
   migrationAddress = "10.0.254.12/24";
 
-  k3sRole = "server";
-  k3sServerAddr = "https://10.0.0.10:6443";
-  k3sTokenFile = "/etc/k3s-token";
+  k0sRole = "controller+worker";
+  k0sTokenFile = "/etc/k0s/join-token";  # Controller join token from init node
 
   enableEdge = true;
   edgeInterface = "eno2";  # Different chassis layout — eno2 not eno3
