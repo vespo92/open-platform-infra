@@ -258,17 +258,15 @@ in
           exit 1
         }
 
-      # ── Fetch k0s join token for cluster join ────────────────
+      # ── Fetch K3s token for cluster join ───────────────────
       echo ""
-      echo "-- Fetching k0s join token --"
-      mkdir -p /mnt/etc/k0s
-      K0S_TOKEN_URL="http://${prov.serverIP}:${toString prov.httpPort}/config/k0s-join-token"
-      if curl -sf "$K0S_TOKEN_URL" -o /mnt/etc/k0s/join-token; then
-        chmod 600 /mnt/etc/k0s/join-token
-        echo "  k0s join token saved"
+      echo "-- Fetching K3s cluster token --"
+      K3S_TOKEN_URL="http://${prov.serverIP}:${toString prov.httpPort}/config/k3s-token"
+      if curl -sf "$K3S_TOKEN_URL" -o /mnt/etc/k3s-token; then
+        chmod 600 /mnt/etc/k3s-token
+        echo "  K3s token saved"
       else
-        echo "  WARNING: Could not fetch k0s join token. Node won't auto-join cluster."
-        echo "  Generate on init controller: k0s token create --role=worker"
+        echo "  WARNING: Could not fetch K3s token. Node won't auto-join cluster."
       fi
 
       # ── Clover Setup (older Dell servers only) ──────────────

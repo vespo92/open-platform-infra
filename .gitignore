@@ -4,8 +4,7 @@ site-config.nix
 # Secrets
 *.key
 *.pem
-k0s-join-token
-join-token
+k3s-token
 .env
 
 # Nix

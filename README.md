@@ -1,13 +1,13 @@
 # Open Platform Infrastructure
 
-Bare-metal infrastructure layer for [Open Platform](https://github.com/Trevato/open-platform). Sets up NixOS + k0s + infrastructure services so Open Platform can deploy into its own vCluster with `infrastructure.mode=external`.
+Bare-metal infrastructure layer for [Open Platform](https://github.com/Trevato/open-platform). Sets up NixOS + K3s + infrastructure services so Open Platform can deploy into its own vCluster with `infrastructure.mode=external`.
 
 ## What this provides
 
 | Layer | Components | Purpose |
 |-------|-----------|---------|
 | **Hardware** | NixOS, ZFS, 10G bonding, GPU passthrough | Bare-metal foundation |
-| **Kubernetes** | k0s (HA etcd, kube-router, multi-node) | Container orchestration |
+| **Kubernetes** | K3s (HA etcd, multi-node) | Container orchestration |
 | **Networking** | Traefik, MetalLB, VLAN segmentation | Ingress, load balancing, isolation |
 | **Storage** | CNPG operator, ZFS pools, MinIO | PostgreSQL, block storage, object storage |
 | **GitOps** | Flux (multi-source) | Infrastructure reconciliation |
@@ -153,9 +153,8 @@ Each node is configured via a `node-config.nix` file:
   sfpInterfaces = [ "enp5s0f0" "enp5s0f1" ];
   storageAddress = "10.0.32.10/20";
 
-  # k0s role
-  k0sRole = "controller+worker";  # "controller+worker" (control-plane + workloads) or "worker"
-  k0sTokenFile = "";               # Empty = init controller; set to "/etc/k0s/join-token" for joining nodes
+  # K3s role
+  k3sRole = "server";  # "server" (control-plane + etcd) or "agent"
 
   # Features
   enableEdge = true;      # MetalLB + connmark routing

@@ -31,14 +31,12 @@
     interface = "vlan101";            # L2 advertisement interface
   };
 
-  # ── k0s ─────────────────────────────────────────────────────────────────────
-  k0s = {
+  # ── K3s ─────────────────────────────────────────────────────────────────────
+  k3s = {
     clusterCidr = "10.42.0.0/16";
     serviceCidr = "10.43.0.0/16";
-    # Join tokens are generated on the init controller:
-    #   k0s token create --role=controller  (for additional controllers)
-    #   k0s token create --role=worker      (for worker nodes)
-    # Place the token at /etc/k0s/join-token on each joining node.
+    nodeCidrMask = 20;                # /20 per node (4096 pod IPs each)
+    # Token: generate with `openssl rand -hex 32` and place in /etc/k3s-token on each node
   };
 
   # ── Nodes ───────────────────────────────────────────────────────────────────
@@ -49,21 +47,21 @@
       k8s = "10.0.0.10";             # VLAN 100 (primary)
       edge = "10.0.16.2";            # VLAN 101 (MetalLB)
       storage = "10.0.32.10";        # VLAN 102 (10G fabric)
-      role = "controller+worker";    # "controller+worker" (control-plane + workloads) or "worker"
+      role = "server";               # "server" (control-plane + etcd) or "agent"
     };
     node-2 = {
       hardware = "Dell R430";
       k8s = "10.0.0.11";
       edge = "10.0.16.11";
       storage = "10.0.32.11";
-      role = "controller+worker";
+      role = "server";
     };
     node-3 = {
       hardware = "AMD EPYC";
       k8s = "10.0.0.12";
       edge = "10.0.16.20";
       storage = "10.0.32.12";
-      role = "controller+worker";
+      role = "server";
       gpu = true;                     # NVIDIA GPU passthrough
     };
   };
