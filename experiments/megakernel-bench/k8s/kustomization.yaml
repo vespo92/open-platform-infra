@@ -1,0 +1,16 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+# Megakernel experiment — deploys into megakernel-bench namespace.
+# Intentionally NOT wired into the top-level infrastructure or services
+# kustomization because this is a research experiment, not a persistent
+# platform service. Apply directly:
+#
+#   kubectl apply -k experiments/megakernel-bench/k8s/
+
+resources:
+  - namespace.yaml
+  - pvc.yaml
+  - configmap-runner.yaml
+  - job-benchmark.yaml
+  - deployment-dev.yaml

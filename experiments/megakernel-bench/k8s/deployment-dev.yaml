@@ -1,0 +1,98 @@
+# Megakernel Dev Pod
+#
+# Long-lived pod with the same image + PVC as the benchmark Job, but
+# idling so you can kubectl exec into it to iterate on kernel code
+# without re-scheduling a fresh Job every time.
+#
+# Usage:
+#   kubectl apply -k experiments/megakernel-bench/k8s/
+#   kubectl -n megakernel-bench exec -it deploy/megakernel-dev -- bash
+#
+# Inside the pod:
+#   cd /workspace/luce-megakernel
+#   vim kernel.cu                 # edit
+#   pip install -e . --no-deps    # rebuild the CUDA extension
+#   python final_bench.py         # re-run the benchmark
+#
+# The dev pod holds a GPU reservation — scale to 0 when not iterating
+# so other workloads can schedule:
+#   kubectl -n megakernel-bench scale deploy/megakernel-dev --replicas=0
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: megakernel-dev
+  namespace: megakernel-bench
+  labels:
+    app.kubernetes.io/name: megakernel-bench
+    app.kubernetes.io/component: dev
+spec:
+  replicas: 0   # Scale up manually when iterating; off by default
+  strategy:
+    type: Recreate   # Only one dev pod at a time — single GPU reservation
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: megakernel-bench
+      app.kubernetes.io/component: dev
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: megakernel-bench
+        app.kubernetes.io/component: dev
+    spec:
+      nodeSelector:
+        platform.openplatform.io/gpu.nvidia: "true"
+      tolerations:
+        - key: gpu
+          operator: Equal
+          value: "true"
+          effect: NoSchedule
+        - key: nvidia.com/gpu
+          operator: Exists
+          effect: NoSchedule
+
+      containers:
+        - name: dev
+          image: ghcr.io/vespo92/megakernel-bench:cuda12.4-torch2.5
+          imagePullPolicy: IfNotPresent
+          command: ["/bin/bash", "/runner/dev.sh"]
+          env:
+            - name: WORKSPACE
+              value: /workspace
+            - name: TORCH_CUDA_ARCH_LIST
+              value: "8.9"
+            - name: NVIDIA_VISIBLE_DEVICES
+              value: "all"
+            - name: NVIDIA_DRIVER_CAPABILITIES
+              value: "compute,utility"
+          resources:
+            requests:
+              cpu: "1"
+              memory: 4Gi
+              nvidia.com/gpu: "1"
+            limits:
+              cpu: "8"
+              memory: 24Gi
+              nvidia.com/gpu: "1"
+          volumeMounts:
+            - name: workspace
+              mountPath: /workspace
+            - name: runner
+              mountPath: /runner
+              readOnly: true
+            - name: dshm
+              mountPath: /dev/shm
+          stdin: true
+          tty: true
+
+      volumes:
+        - name: workspace
+          persistentVolumeClaim:
+            claimName: megakernel-workspace
+        - name: runner
+          configMap:
+            name: megakernel-runner
+            defaultMode: 0755
+        - name: dshm
+          emptyDir:
+            medium: Memory
+            sizeLimit: 4Gi

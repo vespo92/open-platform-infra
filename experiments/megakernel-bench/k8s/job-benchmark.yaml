@@ -1,0 +1,112 @@
+# Megakernel Benchmark Job
+#
+# Runs the Luce megakernel final_bench.py on an NVIDIA GPU node.
+# Uses the workspace PVC for source tree + HF weights cache + results.
+#
+# Environment knobs (set via kubectl set env or edit here):
+#   REPO_URL — git URL of the megakernel repo (default: upstream)
+#   REPO_REF — branch/tag/sha to check out (default: main)
+#   NVIDIA_POWER_LIMIT — optional watt cap for DVFS sweeps
+#   CUDA_VISIBLE_DEVICES — pin to a specific GPU when the node has multiple
+#
+# To run:
+#   kubectl apply -k experiments/megakernel-bench/k8s/
+#   kubectl -n megakernel-bench logs -f job/megakernel-bench
+#
+# To rerun with a different ref:
+#   kubectl -n megakernel-bench delete job megakernel-bench
+#   # edit REPO_REF below, then
+#   kubectl apply -k experiments/megakernel-bench/k8s/
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: megakernel-bench
+  namespace: megakernel-bench
+  labels:
+    app.kubernetes.io/name: megakernel-bench
+    app.kubernetes.io/component: benchmark
+spec:
+  backoffLimit: 0  # Don't retry — research workload, we want to see the first failure
+  ttlSecondsAfterFinished: 604800  # Keep completed Jobs for 7 days
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: megakernel-bench
+        app.kubernetes.io/component: benchmark
+    spec:
+      restartPolicy: Never
+
+      # ── Scheduling ───────────────────────────────────────
+      # Hard-require an NVIDIA GPU node. The label is applied by
+      # hardware-discovery after parsing /etc/hardware-facts.json.
+      nodeSelector:
+        platform.openplatform.io/gpu.nvidia: "true"
+
+      # Tolerate the GPU taint applied at k3s registration.
+      tolerations:
+        - key: gpu
+          operator: Equal
+          value: "true"
+          effect: NoSchedule
+        - key: nvidia.com/gpu
+          operator: Exists
+          effect: NoSchedule
+
+      # Optional: RuntimeClass for explicit nvidia-container-runtime routing.
+      # Safe to leave unset — CDI on containerd will still inject the GPU.
+      # runtimeClassName: nvidia
+
+      containers:
+        - name: bench
+          # TODO: replace with your registry path once the image is pushed.
+          # Build locally:
+          #   docker buildx build --platform linux/amd64 \
+          #     -t ghcr.io/vespo92/megakernel-bench:cuda12.4-torch2.5 \
+          #     --push experiments/megakernel-bench/
+          image: ghcr.io/vespo92/megakernel-bench:cuda12.4-torch2.5
+          imagePullPolicy: IfNotPresent
+          command: ["/bin/bash", "/runner/bench.sh"]
+          env:
+            - name: WORKSPACE
+              value: /workspace
+            - name: REPO_URL
+              value: https://github.com/Luce-Org/luce-megakernel.git
+            - name: REPO_REF
+              value: main
+            - name: TORCH_CUDA_ARCH_LIST
+              value: "8.9"   # Ada; change to "12.0+PTX" for Blackwell
+            - name: NVIDIA_VISIBLE_DEVICES
+              value: "all"
+            - name: NVIDIA_DRIVER_CAPABILITIES
+              value: "compute,utility"
+          resources:
+            requests:
+              cpu: "2"
+              memory: 8Gi
+              nvidia.com/gpu: "1"
+            limits:
+              cpu: "8"
+              memory: 24Gi
+              nvidia.com/gpu: "1"
+          volumeMounts:
+            - name: workspace
+              mountPath: /workspace
+            - name: runner
+              mountPath: /runner
+              readOnly: true
+            - name: dshm
+              mountPath: /dev/shm
+
+      volumes:
+        - name: workspace
+          persistentVolumeClaim:
+            claimName: megakernel-workspace
+        - name: runner
+          configMap:
+            name: megakernel-runner
+            defaultMode: 0755
+        # Large /dev/shm so torch DataLoader + pinned memory don't OOM
+        - name: dshm
+          emptyDir:
+            medium: Memory
+            sizeLimit: 4Gi

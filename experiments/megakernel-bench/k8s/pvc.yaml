@@ -1,0 +1,28 @@
+# Workspace PVC
+#
+# Holds everything persistent across Job runs:
+#   /workspace/luce-megakernel   — cloned source tree (editable)
+#   /workspace/.cache/huggingface — model weight cache (~1.5 GB for Qwen 3.5-0.8B)
+#   /workspace/.cache/torch       — torch extensions cache (compiled .so files)
+#   /workspace/results           — benchmark logs + metrics, timestamped
+#
+# Sized for a handful of small models + compile artifacts. Grow as needed.
+#
+# Access mode ReadWriteOnce is fine because the benchmark Job and dev
+# Deployment are pinned to the same GPU node anyway.
+#
+# Customize storageClassName to match your cluster — leaving unset lets
+# the default StorageClass handle it. On GPU nodes with ZFS fastpool,
+# target that explicitly for fast model loads.
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: megakernel-workspace
+  namespace: megakernel-bench
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 50Gi
+  # storageClassName: nvme-fast

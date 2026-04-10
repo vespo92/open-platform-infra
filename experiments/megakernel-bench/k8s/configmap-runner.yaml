@@ -1,0 +1,135 @@
+# Runner scripts for the megakernel benchmark Job.
+#
+# Lives in a ConfigMap so you can edit the orchestration without
+# rebuilding the container image. Mount at /runner in the Job pod.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: megakernel-runner
+  namespace: megakernel-bench
+data:
+  # ─────────────────────────────────────────────────────────
+  # bench.sh — one full benchmark run
+  # ─────────────────────────────────────────────────────────
+  bench.sh: |
+    #!/usr/bin/env bash
+    set -euo pipefail
+
+    # ─── Env ─────────────────────────────────────────────────
+    WORKSPACE="${WORKSPACE:-/workspace}"
+    REPO_URL="${REPO_URL:-https://github.com/Luce-Org/luce-megakernel.git}"
+    REPO_REF="${REPO_REF:-main}"
+    REPO_DIR="${WORKSPACE}/luce-megakernel"
+    RESULTS_DIR="${WORKSPACE}/results"
+    RUN_ID="$(date +%Y%m%d-%H%M%S)"
+    LOG_FILE="${RESULTS_DIR}/${RUN_ID}-bench.log"
+    META_FILE="${RESULTS_DIR}/${RUN_ID}-meta.json"
+
+    mkdir -p "${RESULTS_DIR}"
+
+    echo "───────────────────────────────────────────────────────"
+    echo "Luce Megakernel Benchmark — run ${RUN_ID}"
+    echo "───────────────────────────────────────────────────────"
+
+    # ─── GPU + environment facts ─────────────────────────────
+    echo
+    echo "▶ nvidia-smi"
+    nvidia-smi
+
+    echo
+    echo "▶ CUDA toolkit"
+    nvcc --version || true
+
+    echo
+    echo "▶ PyTorch / CUDA visibility"
+    python - <<'PY'
+    import json, platform, torch
+    facts = {
+      "python": platform.python_version(),
+      "torch": torch.__version__,
+      "torch_cuda": torch.version.cuda,
+      "cuda_available": torch.cuda.is_available(),
+      "device_count": torch.cuda.device_count(),
+      "devices": [],
+    }
+    for i in range(torch.cuda.device_count()):
+        props = torch.cuda.get_device_properties(i)
+        facts["devices"].append({
+            "index": i,
+            "name": props.name,
+            "sm": f"{props.major}.{props.minor}",
+            "multi_processor_count": props.multi_processor_count,
+            "total_memory_gib": round(props.total_memory / (1024**3), 2),
+        })
+    print(json.dumps(facts, indent=2))
+    PY
+
+    # ─── Clone or refresh the megakernel repo ────────────────
+    echo
+    echo "▶ Preparing source tree at ${REPO_DIR}"
+    if [ ! -d "${REPO_DIR}/.git" ]; then
+      git clone "${REPO_URL}" "${REPO_DIR}"
+    fi
+    cd "${REPO_DIR}"
+    git fetch --all --tags
+    git checkout "${REPO_REF}"
+    git log -1 --oneline
+
+    # ─── Build the CUDA extension ────────────────────────────
+    echo
+    echo "▶ pip install -e . (builds kernel.cu + prefill.cu)"
+    # Force rebuild if kernel sources changed since last run
+    pip install -e . 2>&1 | tail -50
+
+    # ─── Capture full metadata for this run ──────────────────
+    python - > "${META_FILE}" <<PY
+    import json, subprocess, torch, platform
+    def sh(cmd):
+        try:
+            return subprocess.check_output(cmd, shell=True, text=True).strip()
+        except Exception as e:
+            return f"ERR: {e}"
+    props = torch.cuda.get_device_properties(0) if torch.cuda.is_available() else None
+    meta = {
+      "run_id": "${RUN_ID}",
+      "git_sha": sh("git rev-parse HEAD"),
+      "git_ref": sh("git rev-parse --abbrev-ref HEAD"),
+      "python": platform.python_version(),
+      "torch": torch.__version__,
+      "torch_cuda": torch.version.cuda,
+      "gpu_name": props.name if props else None,
+      "gpu_sm": f"{props.major}.{props.minor}" if props else None,
+      "gpu_smcount": props.multi_processor_count if props else None,
+      "gpu_mem_gib": round(props.total_memory / (1024**3), 2) if props else None,
+      "nvidia_smi_query": sh("nvidia-smi --query-gpu=name,driver_version,power.limit,clocks.gr,clocks.mem --format=csv,noheader"),
+    }
+    print(json.dumps(meta, indent=2))
+    PY
+
+    # ─── Run the official benchmark ──────────────────────────
+    echo
+    echo "▶ python final_bench.py"
+    echo "  (10 warmup + 20 timed runs averaged per paper methodology)"
+    python final_bench.py 2>&1 | tee "${LOG_FILE}"
+
+    echo
+    echo "───────────────────────────────────────────────────────"
+    echo "Run complete. Artifacts:"
+    echo "  ${LOG_FILE}"
+    echo "  ${META_FILE}"
+    echo "───────────────────────────────────────────────────────"
+
+  # ─────────────────────────────────────────────────────────
+  # dev.sh — sleep forever so you can kubectl exec to iterate
+  # ─────────────────────────────────────────────────────────
+  dev.sh: |
+    #!/usr/bin/env bash
+    set -euo pipefail
+    echo "Dev pod ready. Exec in with:"
+    echo "  kubectl -n megakernel-bench exec -it deploy/megakernel-dev -- bash"
+    echo
+    echo "Source tree lives at /workspace/luce-megakernel"
+    echo "Results at /workspace/results"
+    echo
+    nvidia-smi || true
+    exec sleep infinity

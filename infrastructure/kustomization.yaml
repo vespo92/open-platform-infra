@@ -11,6 +11,8 @@ resources:
   - vcluster/helmrelease.yaml
   - coredns/deployment.yaml
   - hardware-discovery/daemonset.yaml
+  - nvidia-device-plugin/runtime-class.yaml
+  - nvidia-device-plugin/daemonset.yaml
   - vault/helmrelease.yaml
   - vault/cluster-secret-store.yaml
   - external-secrets/helmrelease.yaml

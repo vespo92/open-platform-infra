@@ -1,0 +1,7 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: megakernel-bench
+  labels:
+    app.kubernetes.io/name: megakernel-bench
+    platform.openplatform.io/tier: experiment

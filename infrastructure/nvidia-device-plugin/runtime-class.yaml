@@ -1,0 +1,24 @@
+# RuntimeClass — nvidia
+#
+# Pods that need GPU access can set `runtimeClassName: nvidia` in their
+# pod spec. With CDI enabled in k3s containerd, this routes the pod
+# through the nvidia-container-runtime which injects the driver libs
+# and device nodes into the container.
+#
+# This is optional: pods that just request `nvidia.com/gpu: 1` also
+# work because the device plugin advertises the resource and the CDI
+# hook on containerd handles device injection transparently. The
+# RuntimeClass exists for workloads that want to be explicit.
+apiVersion: node.k8s.io/v1
+kind: RuntimeClass
+metadata:
+  name: nvidia
+handler: nvidia
+scheduling:
+  nodeSelector:
+    platform.openplatform.io/gpu.nvidia: "true"
+  tolerations:
+    - key: gpu
+      operator: Equal
+      value: "true"
+      effect: NoSchedule

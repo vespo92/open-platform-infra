@@ -53,6 +53,7 @@ in
   imports = [
     ./hardware-configuration.nix
     ../../modules/hardware-classification.nix
+    ../../modules/gpu-nvidia.nix
   ];
 
   # ═══════════════════════════════════════════════════════════
