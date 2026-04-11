@@ -25,18 +25,52 @@
   };
 
   # ── MetalLB ─────────────────────────────────────────────────────────────────
+  # MetalLB ships in FRR mode by default — it can do both L2 and BGP.
+  # See infrastructure/metallb/config.yaml for the L2/BGP examples.
   metallb = {
     addressPool = "10.0.16.0/24";    # Subset of edge VLAN for VIPs
     traefikVip = "10.0.16.10";       # Primary ingress VIP
     interface = "vlan101";            # L2 advertisement interface
+    # Optional BGP — uncomment if your upstream router will peer.
+    # bgp = {
+    #   myASN = 64512;                # K8s cluster ASN (RFC 6996 private)
+    #   peerASN = 64513;              # Upstream router ASN
+    #   peerAddress = "10.0.16.1";    # Edge VLAN gateway
+    # };
+  };
+
+  # ── Cilium ──────────────────────────────────────────────────────────────────
+  # Cilium is the CNI and replaces kube-proxy. The HelmRelease lives at
+  # infrastructure/cilium/helmrelease.yaml — these values document what
+  # the defaults are and what you typically override per site.
+  cilium = {
+    # Pinned version. Bump deliberately after testing — auto-upgrades can
+    # break pod networking cluster-wide.
+    version = "1.16.19";
+    # Cilium MTU should match your pod fabric MTU minus a small headroom.
+    # 1500 is the safe default for any 1G fabric. Bump to 8950 if you
+    # have a 10G fabric with jumbo frames (9000) configured end-to-end.
+    mtu = 1500;
+    # Bootstrap apiserver IP for kube-proxy replacement. Must be a real
+    # control-plane node IP, not the kubernetes Service VIP.
+    k8sServiceHost = "10.0.0.10";
+    # Cilium installs node-to-node routes automatically when all nodes
+    # are L2-adjacent on the chosen fabric. Set false if you prefer to
+    # manage peer routes by hand in node-config.nix.
+    autoDirectNodeRoutes = true;
   };
 
   # ── K3s ─────────────────────────────────────────────────────────────────────
   k3s = {
     clusterCidr = "10.42.0.0/16";
     serviceCidr = "10.43.0.0/16";
-    nodeCidrMask = 20;                # /20 per node (4096 pod IPs each)
+    nodeCidrMask = 24;                # /24 per node (256 pod IPs each)
     # Token: generate with `openssl rand -hex 32` and place in /etc/k3s-token on each node
+    #
+    # NOTE: hosts/worker/configuration.nix disables flannel, kube-proxy,
+    # helm-controller, traefik, and servicelb out of the box. Cilium
+    # replaces flannel + kube-proxy; Flux replaces helm-controller; the
+    # Traefik HelmRelease replaces the in-tree chart.
   };
 
   # ── Nodes ───────────────────────────────────────────────────────────────────

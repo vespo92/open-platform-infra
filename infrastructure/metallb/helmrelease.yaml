@@ -29,3 +29,18 @@ spec:
   upgrade:
     remediation:
       retries: 3
+  # ────────────────────────────────────────────────────────────────────
+  # FRR mode is enabled so the speaker can do BGP as well as L2.
+  # If you only need L2 advertisement (single flat network, no router
+  # peering), this still works — L2Advertisement resources are honored
+  # in FRR mode just like the legacy speaker.
+  #
+  # Why FRR over the legacy speaker:
+  #   - Single binary speaks both BGP and L2 (no mode switch required)
+  #   - Real BGP implementation (FRR / Quagga lineage)
+  #   - Required for unnumbered BGP, communities, and any router peering
+  # ────────────────────────────────────────────────────────────────────
+  values:
+    speaker:
+      frr:
+        enabled: true

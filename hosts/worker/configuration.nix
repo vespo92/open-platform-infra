@@ -252,7 +252,23 @@ in
   } // lib.optionalAttrs (node.k3sServerAddr != "") {
     serverAddr = node.k3sServerAddr;
     extraFlags = [
-      "--disable" "servicelb"  # Use MetalLB instead
+      # Use MetalLB instead of k3s ServiceLB
+      "--disable" "servicelb"
+      # We deploy Traefik via Flux HelmRelease, not the k3s in-tree chart
+      "--disable" "traefik"
+      # k3s ships an in-tree Wrangler-based helm-controller. We use Flux as
+      # the sole helm manager — leaving helm-controller enabled creates
+      # finalizer cascades that can helm-uninstall Cilium and tear down the
+      # entire cluster network. See docs/LESSONS-LEARNED.md.
+      "--disable" "helm-controller"
+      # Cilium replaces both flannel (CNI) and kube-proxy (BPF cgroup-connect
+      # handles Service VIP routing). The Cilium HelmRelease in
+      # infrastructure/cilium/helmrelease.yaml MUST be applied before nodes
+      # come up healthy — kubelet will report NotReady until the CNI is in
+      # place.
+      "--flannel-backend=none"
+      "--disable-network-policy"
+      "--disable-kube-proxy"
     ]
     # ── Hardware-derived node labels ──
     # These propagate node-config.nix capabilities into Kubernetes at registration.
@@ -272,7 +288,9 @@ in
     # before the hardware-discovery DaemonSet runs.
     ++ lib.optionals (nodeAttr "enableGpu" false) [
       "--node-taint" "gpu=true:NoSchedule"
-    ];
+    ]
+    # ── Extra flags from node-config (escape hatch) ──
+    ++ (nodeAttr "k3sExtraFlags" []);
   };
 
   # ═══════════════════════════════════════════════════════════
@@ -318,16 +336,21 @@ in
       2379 2380    # etcd HA (server nodes)
       10250        # kubelet
       6443         # K8s API
+      4240         # Cilium agent health check
+      4244         # Hubble server
+      4245         # Hubble Relay
     ] ++ lib.optionals (nodeAttr "enableEdge" false) [
       80 443       # Traefik (MetalLB edge)
       7946 7472    # MetalLB memberlist
+      179          # BGP (only used when MetalLB FRR speaker peers with a router)
     ];
-    allowedUDPPorts = [
-      8472         # flannel VXLAN (cross-node pod networking)
-    ] ++ lib.optionals (nodeAttr "enableEdge" false) [
+    allowedUDPPorts = lib.optionals (nodeAttr "enableEdge" false) [
       7946 7472    # MetalLB memberlist
     ];
-    trustedInterfaces = [ "cni0" "flannel.1" ]
+    # Cilium owns the BPF on its own interfaces; the host firewall would
+    # otherwise reject pod-to-pod traffic. lxc+ matches every veth Cilium
+    # creates per pod (lxc12345abc, lxc...).
+    trustedInterfaces = [ "cilium_host" "cilium_net" "lxc+" ]
       ++ lib.optionals (nodeAttr "enableKvm" false) [ "br-vms" "virbr0" ];
   };
 
@@ -429,4 +452,151 @@ in
 
   time.timeZone = lib.mkDefault "UTC";
   i18n.defaultLocale = "en_US.UTF-8";
+
+  # ═══════════════════════════════════════════════════════════
+  # Cilium — fix-local-rule timer
+  # ═══════════════════════════════════════════════════════════
+  #
+  # Cilium moves the kernel rule `from all lookup local` from priority 0
+  # to priority 100 on agent startup. This breaks the node's ability to
+  # deliver packets addressed to its own IPs (kubelet → apiserver, host
+  # services → LoadBalancer VIPs, etc.).
+  #
+  # The fix: re-pin priority 0 every 60 seconds. The script is two-step
+  # and idempotent — it always confirms pref 0 exists before deleting
+  # any misplaced pref 100 entry, so a partial failure cannot leave the
+  # routing table without a local lookup rule at all.
+  #
+  # See infrastructure/cilium/README.md for the background.
+
+  systemd.services.fix-local-rule = {
+    description = "Ensure 'ip rule lookup local' stays at priority 0 (Cilium moves it to 100)";
+    after = [ "k3s.service" ];
+    serviceConfig = {
+      Type = "oneshot";
+      ExecStart = pkgs.writeShellScript "fix-local-rule" ''
+        set -eu
+        ip="${pkgs.iproute2}/bin/ip"
+
+        # Step 1: ensure pref 0 'lookup local' exists. Idempotent.
+        if ! $ip rule show | grep -qE '^0:.*lookup local'; then
+          $ip rule add from all lookup local pref 0
+          echo "fix-local-rule: added 'lookup local' at pref 0"
+        fi
+
+        # Step 2: only AFTER pref 0 is confirmed, remove a misplaced pref 100.
+        # If the add above somehow failed, refuse to delete pref 100 — the
+        # node would lose its local lookup entirely.
+        if ! $ip rule show | grep -qE '^0:.*lookup local'; then
+          echo "fix-local-rule: pref 0 still missing after add — refusing to del pref 100" >&2
+          exit 1
+        fi
+
+        if $ip rule show | grep -qE '^100:.*lookup local'; then
+          $ip rule del from all lookup local pref 100
+          echo "fix-local-rule: removed misplaced 'lookup local' at pref 100"
+        fi
+      '';
+    };
+  };
+
+  systemd.timers.fix-local-rule = {
+    wantedBy = [ "timers.target" ];
+    timerConfig = {
+      OnBootSec = "15s";
+      OnUnitActiveSec = "60s";
+      Unit = "fix-local-rule.service";
+    };
+  };
+
+  # ═══════════════════════════════════════════════════════════
+  # Cilium — Multus self-heal (opt-in)
+  # ═══════════════════════════════════════════════════════════
+  #
+  # Cilium 1.16.x renames /etc/cni/net.d/00-multus.conf to
+  # /etc/cni/net.d/00-multus.conf.cilium_bak on every CNI install,
+  # regardless of cni.exclusive=false. KubeVirt VMs that depend on
+  # Multus NetworkAttachmentDefinitions then fail to launch because
+  # kubelet skips Multus and goes straight to Cilium.
+  #
+  # Defense in depth:
+  #   1. environment.etc canonical fallback config (always present)
+  #   2. systemd.path inotify watch on /etc/cni/net.d → restore on rename
+  #   3. systemd.timer running every 60s as belt-and-suspenders
+  #
+  # Set enableMultusSelfHeal = true in node-config.nix to opt in. This
+  # is a no-op on nodes that don't run Multus and is safe to enable
+  # cluster-wide if you're not sure which nodes need it.
+
+  environment.etc = lib.mkIf (nodeAttr "enableMultusSelfHeal" false) {
+    "nixos/multus-cni-canonical.conf" = {
+      text = ''{"cniVersion":"0.3.1","logLevel":"verbose","logToStderr":true,"name":"multus-cni-network","clusterNetwork":"/host/etc/cni/net.d/05-cilium.conflist","type":"multus-shim"}'';
+      mode = "0644";
+    };
+  };
+
+  systemd.services.multus-selfheal = lib.mkIf (nodeAttr "enableMultusSelfHeal" false) {
+    description = "Restore /etc/cni/net.d/00-multus.conf after Cilium rename";
+    after = [ "k3s.service" ];
+    serviceConfig = {
+      Type = "oneshot";
+      ExecStart = pkgs.writeShellScript "multus-selfheal" ''
+        set -eu
+        conf=/etc/cni/net.d/00-multus.conf
+        bak=/etc/cni/net.d/00-multus.conf.cilium_bak
+        canonical=/etc/nixos/multus-cni-canonical.conf
+        log() { ${pkgs.util-linux}/bin/logger -t multus-selfheal "$@"; }
+
+        # Kubelet's CNI dir may not exist yet at very early boot. Exit
+        # quietly — the timer will retry.
+        if [ ! -d /etc/cni/net.d ]; then
+          exit 0
+        fi
+
+        # If the file is already in place, trust it. No-op.
+        if [ -f "$conf" ]; then
+          exit 0
+        fi
+
+        # Preferred path: restore from Cilium's own backup.
+        if [ -f "$bak" ]; then
+          ${pkgs.coreutils}/bin/cp -p "$bak" "$conf"
+          ${pkgs.coreutils}/bin/chmod 0600 "$conf"
+          ${pkgs.coreutils}/bin/chown root:root "$conf"
+          log "Restored 00-multus.conf from .cilium_bak"
+          exit 0
+        fi
+
+        # Fallback: write the canonical multus-shim config from /etc/nixos.
+        if [ -f "$canonical" ]; then
+          ${pkgs.coreutils}/bin/cp "$canonical" "$conf"
+          ${pkgs.coreutils}/bin/chmod 0600 "$conf"
+          ${pkgs.coreutils}/bin/chown root:root "$conf"
+          log "Restored 00-multus.conf from canonical fallback"
+          exit 0
+        fi
+
+        log "CRITICAL: no source available for 00-multus.conf restore"
+        exit 1
+      '';
+    };
+  };
+
+  systemd.paths.multus-selfheal = lib.mkIf (nodeAttr "enableMultusSelfHeal" false) {
+    description = "Watch /etc/cni/net.d for Multus config rename";
+    wantedBy = [ "multi-user.target" ];
+    pathConfig = {
+      PathChanged = "/etc/cni/net.d";
+      Unit = "multus-selfheal.service";
+    };
+  };
+
+  systemd.timers.multus-selfheal = lib.mkIf (nodeAttr "enableMultusSelfHeal" false) {
+    wantedBy = [ "timers.target" ];
+    timerConfig = {
+      OnBootSec = "45s";
+      OnUnitActiveSec = "60s";
+      Unit = "multus-selfheal.service";
+    };
+  };
 }

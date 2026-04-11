@@ -55,4 +55,20 @@
   # auto-classifies based on detected hardware (ECC, GPU, cores, RAM).
   # Valid values: "database", "gpu", "compute", "general"
   # nodeClass = "general";
+
+  # ── Cilium Multus self-heal (opt-in) ───────────────────────────────────────
+  # Set to true if this node runs KubeVirt VMs that need Multus
+  # NetworkAttachmentDefinitions (e.g. bridged Windows VMs). Cilium 1.16
+  # silently renames /etc/cni/net.d/00-multus.conf on every CNI install —
+  # the self-heal restores it within 60 seconds. Harmless to leave off if
+  # you don't run Multus.
+  # enableMultusSelfHeal = false;
+
+  # ── Extra k3s flags (escape hatch) ─────────────────────────────────────────
+  # Anything here is appended to k3s extraFlags after the defaults in
+  # hosts/worker/configuration.nix (servicelb, traefik, helm-controller,
+  # flannel, kube-proxy all disabled by default).
+  # k3sExtraFlags = [
+  #   "--kube-controller-manager-arg=node-cidr-mask-size=24"
+  # ];
 }

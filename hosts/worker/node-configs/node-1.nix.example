@@ -24,6 +24,9 @@
   enableKvm = true;
   enableWindowsBridge = true;
   bridgeInterface = "eno2";
+  # KubeVirt + bridged VMs need Multus, and Cilium 1.16 silently renames
+  # the Multus CNI config on every install. Opt in to the self-heal.
+  enableMultusSelfHeal = true;
 
   enableZfs = true;
   zfsPools = [ "tank" ];

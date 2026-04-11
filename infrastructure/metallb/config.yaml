@@ -1,6 +1,15 @@
-# MetalLB address pool and L2 advertisement.
-# Customize the address range and interface for your environment.
-# These values should match your site-config.nix metallb section.
+# MetalLB address pools and advertisements.
+#
+# This file ships with a sane L2 default that works on a single flat
+# network. Uncomment the BGP block at the bottom if you have a router
+# willing to peer (OPNsense, pfSense, Palo Alto, MikroTik, Cisco, etc).
+#
+# Customize the address ranges to match your edge VLAN. They should be
+# disjoint from any DHCP pool on the same network.
+
+# ─────────────────────────────────────────────────────────────────────
+# Pool 1 — shared infrastructure VIPs (Traefik, monitoring, etc.)
+# ─────────────────────────────────────────────────────────────────────
 apiVersion: metallb.io/v1beta1
 kind: IPAddressPool
 metadata:
@@ -8,8 +17,13 @@ metadata:
   namespace: metallb-system
 spec:
   addresses:
-    - 10.0.16.0/24  # Customize: your MetalLB VIP range (subset of edge VLAN)
+    - 10.0.16.0/24  # Customize: subset of your edge VLAN reserved for VIPs
+  autoAssign: true
 ---
+# L2 advertisement — works without any router config. Speakers ARP for
+# each VIP on the named interface and traffic is delivered to whichever
+# node currently owns the VIP. Failover is fast (~10s) but all VIPs
+# land on a single node at a time per pool.
 apiVersion: metallb.io/v1beta1
 kind: L2Advertisement
 metadata:
@@ -19,4 +33,49 @@ spec:
   ipAddressPools:
     - shared-infra
   interfaces:
-    - vlan101  # Customize: your edge VLAN interface name
+    - vlan101  # Customize: the interface MetalLB should ARP on
+
+# ─────────────────────────────────────────────────────────────────────
+# OPTIONAL — BGP peering with your upstream router.
+#
+# Uncomment everything below and set your ASNs / peer address. ECMP
+# spreads each VIP across all participating speakers, which gives you
+# real load balancing instead of single-node L2 failover.
+#
+# Recommended ASN ranges:
+#   - 64512–65534 are private (RFC 6996). Pick something memorable.
+#   - The K8s cluster gets one ASN (myASN). Your router gets another
+#     (peerASN). They must be different unless you set ebgpMultiHop.
+#
+# Pair this with externalTrafficPolicy: Local on your LoadBalancer
+# Service (Traefik, etc.) so only nodes actually running pods advertise
+# the VIP. That gives you both ECMP and node-pinning for SNAT-free
+# client IPs.
+# ─────────────────────────────────────────────────────────────────────
+# ---
+# apiVersion: metallb.io/v1beta2
+# kind: BGPPeer
+# metadata:
+#   name: edge-router
+#   namespace: metallb-system
+# spec:
+#   myASN: 64512        # K8s cluster ASN
+#   peerASN: 64513      # Upstream router ASN
+#   peerAddress: 10.0.16.1  # Edge VLAN gateway
+#   # Optional: limit which nodes peer with the router. Useful if only
+#   # some nodes are connected to the edge VLAN.
+#   # nodeSelectors:
+#   #   - matchLabels:
+#   #       platform.openplatform.io/edge: "true"
+# ---
+# apiVersion: metallb.io/v1beta1
+# kind: BGPAdvertisement
+# metadata:
+#   name: shared-infra-bgp
+#   namespace: metallb-system
+# spec:
+#   ipAddressPools:
+#     - shared-infra
+#   # Advertise each VIP as a /32. Most routers will install ECMP routes
+#   # automatically when multiple speakers advertise the same prefix.
+#   aggregationLength: 32
