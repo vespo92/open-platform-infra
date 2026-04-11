@@ -1,6 +1,10 @@
 apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
 resources:
+  # Cilium MUST be applied first — k3s starts with --flannel-backend=none
+  # and --disable-kube-proxy, so nodes will be NotReady until the CNI is
+  # installed and Service routing is in place.
+  - cilium/helmrelease.yaml
   - traefik/helmrelease.yaml
   - metallb/helmrelease.yaml
   - metallb/config.yaml

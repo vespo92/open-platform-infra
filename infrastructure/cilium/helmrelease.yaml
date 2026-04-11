@@ -1,0 +1,158 @@
+apiVersion: source.toolkit.fluxcd.io/v1
+kind: HelmRepository
+metadata:
+  name: cilium
+  namespace: flux-system
+spec:
+  interval: 24h
+  url: https://helm.cilium.io/
+---
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: cilium
+  namespace: kube-system
+spec:
+  interval: 15m
+  timeout: 10m
+  chart:
+    spec:
+      chart: cilium
+      # Pinned. Auto-upgrading the CNI without testing can break pod networking
+      # cluster-wide. Bump deliberately after validating in a non-prod node.
+      # 1.16.19 is the version validated end-to-end against the patterns below.
+      version: "1.16.19"
+      sourceRef:
+        kind: HelmRepository
+        name: cilium
+        namespace: flux-system
+  install:
+    createNamespace: false
+    remediation:
+      retries: 3
+  upgrade:
+    remediation:
+      retries: 3
+  # ────────────────────────────────────────────────────────────────────────
+  # Open Platform default Cilium profile.
+  #
+  # Design goals:
+  #   1. Native routing (no VXLAN/Geneve encap) for line-rate pod-to-pod
+  #      throughput. On a 10G east-west fabric with jumbo frames this lands
+  #      around 9 Gbps pod-to-pod. On a 1G management NIC it caps at link
+  #      speed but avoids the encap overhead.
+  #   2. kubeProxyReplacement — Cilium BPF cgroup-connect handles all
+  #      Service VIP routing. The k3s service is started with
+  #      --disable-kube-proxy so iptables KUBE-SVC-* chains are never
+  #      created. See hosts/worker/configuration.nix.
+  #   3. Hubble + Relay enabled for in-cluster observability. UI is off by
+  #      default — expose it via your own Ingress if you want a dashboard.
+  #   4. autoDirectNodeRoutes ON — Cilium installs routes between nodes
+  #      automatically when all nodes are L2-adjacent on the chosen pod
+  #      fabric. This makes the stack truly plug-and-play: add a node, it
+  #      gets a /24 from the cluster CIDR, and other nodes learn the route.
+  #   5. BGP control plane OFF — MetalLB (FRR mode) handles BGP/L2
+  #      advertisement of LoadBalancer VIPs. Cilium's BGP control plane
+  #      is stable enough to use, but MetalLB is the lower-risk default
+  #      and works with the same BYOH router assumptions.
+  #
+  # If you want to use Cilium native BGP instead of MetalLB, flip
+  # bgpControlPlane.enabled to true and add CiliumBGPClusterConfig +
+  # CiliumLoadBalancerIPPool resources. You will also need to disable the
+  # MetalLB HelmRelease.
+  # ────────────────────────────────────────────────────────────────────────
+  values:
+    # ── Routing ────────────────────────────────────────────────────────
+    # Native routing on the underlying L2 fabric. No tunnel encapsulation.
+    routingMode: native
+    # Must match k3s --cluster-cidr. The default k3s pod CIDR is 10.42.0.0/16.
+    # Override to match your site-config if you change it.
+    ipv4NativeRoutingCIDR: 10.42.0.0/16
+    tunnelProtocol: ""
+    # Cilium installs routes between nodes for their PodCIDR allocations
+    # automatically. Requires all nodes to be L2-adjacent on the interface
+    # Cilium picks for node-to-node traffic (controlled by devices: below
+    # if you need to pin it).
+    autoDirectNodeRoutes: true
+
+    # ── MTU ────────────────────────────────────────────────────────────
+    # 1500 is safe on any fabric. If your pod east-west fabric has jumbo
+    # frames (9000), set this to 8950 in a Helm values override to get
+    # ~10x throughput. The 50-byte headroom is for safety.
+    MTU: 1500
+
+    # ── IPAM ───────────────────────────────────────────────────────────
+    # Use Kubernetes-assigned PodCIDRs (k3s allocates one per node).
+    # This requires --cluster-cidr and --node-cidr-mask-size on k3s.
+    ipam:
+      mode: kubernetes
+
+    # SNAT pod traffic leaving the cluster via iptables. Required when
+    # the upstream router does not have routes back to the pod CIDR.
+    enableIPv4Masquerade: true
+
+    # ── kube-proxy replacement ─────────────────────────────────────────
+    # k3s must be started with --disable-kube-proxy. The k8sServiceHost/
+    # k8sServicePort below break the chicken-and-egg where Cilium needs
+    # Service routing to reach the apiserver to program Service routing.
+    #
+    # Set k8sServiceHost to your first control-plane node's primary IP
+    # (the same value as k3s services.k3s.serverAddr on agents). The
+    # site-config.nix.example bakes 10.0.0.10 in as the default.
+    kubeProxyReplacement: true
+    k8sServiceHost: 10.0.0.10
+    k8sServicePort: 6443
+
+    # ── CNI ────────────────────────────────────────────────────────────
+    # exclusive: false lets Cilium coexist with secondary CNIs (Multus)
+    # for KubeVirt VM bridge networking. If you do not run KubeVirt VMs
+    # you can leave this false anyway — it has no effect on pod traffic.
+    cni:
+      exclusive: false
+
+    # ── Observability ──────────────────────────────────────────────────
+    # Hubble Relay aggregates flow data from all nodes. UI is off by
+    # default; enable it and front it with Traefik if you want a GUI.
+    hubble:
+      enabled: true
+      relay:
+        enabled: true
+      ui:
+        enabled: false
+      metrics:
+        enabled:
+          - dns
+          - drop
+          - tcp
+          - flow
+          - port-distribution
+          - icmp
+          - http
+
+    # ── BGP control plane ──────────────────────────────────────────────
+    # OFF by default — MetalLB FRR speaker advertises LoadBalancer VIPs.
+    # Flip to true and add CiliumBGPClusterConfig if you want to drop
+    # MetalLB and use Cilium native BGP instead.
+    bgpControlPlane:
+      enabled: false
+
+    # ── Host firewall ──────────────────────────────────────────────────
+    # OFF — NixOS manages the host firewall (see hosts/worker/configuration.nix).
+    hostFirewall:
+      enabled: false
+
+    operator:
+      # Single replica is fine for small clusters. Bump to 2 for HA on
+      # clusters with >3 nodes where you can survive the operator
+      # leader-election failover window.
+      replicas: 1
+
+    # ── Resources ──────────────────────────────────────────────────────
+    # Conservative defaults so the agent fits on small nodes. Tune up
+    # for high pod-density nodes.
+    resources:
+      requests:
+        cpu: 100m
+        memory: 256Mi
+      limits:
+        memory: 1Gi

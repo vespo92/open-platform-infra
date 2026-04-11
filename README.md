@@ -7,8 +7,9 @@ Bare-metal infrastructure layer for [Open Platform](https://github.com/Trevato/o
 | Layer | Components | Purpose |
 |-------|-----------|---------|
 | **Hardware** | NixOS, ZFS, 10G bonding, GPU passthrough | Bare-metal foundation |
-| **Kubernetes** | K3s (HA etcd, multi-node) | Container orchestration |
-| **Networking** | Traefik, MetalLB, VLAN segmentation | Ingress, load balancing, isolation |
+| **Kubernetes** | K3s (HA etcd, multi-node, no flannel, no kube-proxy) | Container orchestration |
+| **CNI** | Cilium (native routing, eBPF, kube-proxy replacement, Hubble) | Pod networking + service LB on a single eBPF data plane |
+| **Networking** | Traefik, MetalLB (FRR mode, L2 + BGP), VLAN segmentation | Ingress, load balancing, isolation |
 | **Storage** | CNPG operator, ZFS pools, MinIO | PostgreSQL, block storage, object storage |
 | **GitOps** | Flux (multi-source) | Infrastructure reconciliation |
 | **Virtualization** | KubeVirt, vCluster operator | VM lifecycle, tenant isolation |
@@ -50,8 +51,9 @@ curl http://mcp-registry.mcp-registry.svc:3000/api/v1/config/claude-code
 ```
 Host Cluster (this repo)
 ├── Infrastructure (always running)
+│   ├── Cilium        → eBPF CNI + kube-proxy replacement + Hubble
 │   ├── Traefik       → routes *.domain for all tenants
-│   ├── MetalLB       → assigns VIPs from edge VLAN
+│   ├── MetalLB (FRR) → assigns VIPs from edge VLAN (L2 or BGP)
 │   ├── cert-manager  → Let's Encrypt certificates
 │   ├── CNPG operator → PostgreSQL lifecycle
 │   ├── Flux          → multi-source GitOps
