@@ -13,25 +13,25 @@ REGISTRY    := ghcr.io/vespo92/open-platform-pepr
 MANIFEST    := dist/pepr-module-$(PEPR_MODULE).yaml
 
 install:
-	npm install
+	bun install
 
 build: install
-	npx pepr build
+	bunx pepr build
 	cp $(MANIFEST) deploy/pepr-module.yaml
 	@echo "✓ Manifest copied to deploy/pepr-module.yaml — ready for git commit"
 
 build-image: install
-	npx pepr build --registry $(REGISTRY)
+	bunx pepr build --registry $(REGISTRY)
 	cp $(MANIFEST) deploy/pepr-module.yaml
 
 dev: install
-	npx pepr dev
+	bunx pepr dev
 
 deploy: build
-	npx pepr deploy
+	bunx pepr deploy
 
 test: install
-	npm test
+	bun test
 
 audit-log:
 	kubectl logs -n pepr-system -l app=pepr-$(PEPR_MODULE) -f --tail=100
@@ -57,4 +57,4 @@ rollback:
 	@echo "  To fully remove: kubectl delete mutatingwebhookconfiguration,validatingwebhookconfiguration -l pepr.dev/uuid=$(PEPR_MODULE)"
 
 clean:
-	rm -rf dist node_modules
+	rm -rf dist node_modules bun.lockb

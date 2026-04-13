@@ -40,7 +40,7 @@
     "dev": "pepr dev",
     "dev:cluster": "pepr dev --confirm",
     "format": "pepr format",
-    "test": "jest --passWithNoTests",
+    "test": "bun test",
     "deploy": "pepr deploy"
   },
   "dependencies": {
