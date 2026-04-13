@@ -1,0 +1,505 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: pepr-system
+  labels:
+    pepr.dev/controller: admission
+    app.kubernetes.io/part-of: open-platform-infra
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: pepr-open-platform-policy
+rules:
+  - apiGroups:
+      - '*'
+    resources:
+      - '*'
+    verbs:
+      - create
+      - delete
+      - get
+      - list
+      - patch
+      - update
+      - watch
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: pepr-open-platform-policy
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: pepr-open-platform-policy
+subjects:
+  - kind: ServiceAccount
+    name: pepr-open-platform-policy
+    namespace: pepr-system
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: pepr-open-platform-policy
+  namespace: pepr-system
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: pepr-open-platform-policy-api-token
+  namespace: pepr-system
+type: Opaque
+data:
+  value: >-
+    M2JiOTgwMDY4MzY4YzI3Y2NkYmIyMDBlZGVjNTVhMDVlMDk0ZGMwNDQ0YWQ4ZjQ4Y2ZiOTNhYTkxYWZkN2U1Yg==
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: pepr-open-platform-policy-tls
+  namespace: pepr-system
+type: kubernetes.io/tls
+data:
+  tls.crt: >-
+    LS0tLS1CRUdJTiBDRVJUSUZJQ0FURS0tLS0tDQpNSUlDc3pDQ0FadWdBd0lCQWdJQkFUQU5CZ2txaGtpRzl3MEJBUXNGQURBQU1CNFhEVEkyTURReE16RTJNVGN4DQpORm9YRFRJM01EUXhNekUyTVRjeE5Gb3dBRENDQVNJd0RRWUpLb1pJaHZjTkFRRUJCUUFEZ2dFUEFEQ0NBUW9DDQpnZ0VCQU1xWXNWRk9JbVA5YkZtcFQrczFqUTZ0aUJhaWJIU2syZC9jaTlwRFY4eGI5SDJlOXBxQ0J0cTdUNGpDDQpnSTcrNFhiT2hBWGpicmhNTEVUZDRLMmVaeUw0aDFPNGxwMmFOUEU2bmEvemJXaWZQVUY0VzRoTUo4aDlhd3NODQpNSHNWTkZydnhLWmhueVNIM1Z3ZHJadWpxQjZrZEZ1eXVVMTJqVGpFbXNwNHdibzJ6bmFnb1plaVRNeFZZcEhaDQpIMUIyN3VYQ20wU2Z3VGVmMUdGc2JpQWEvSG1QbjhVOVhGdjJlbHlHYWtNMXU1TlBVNERaYVArQjN5eXZkdURPDQp0dEErMGUzQW0zc2tXQmlhZjVVUEM1WUNTTXRTbkp6aUZNSEd0TmczWGNuTzBRY1FzRTdSMmk0c3B4cjdFanlPDQpyWWRPcWFiaEZrZkYxOThoa3dJcDNDME5WTEVDQXdFQUFhTTRNRFl3TkFZRFZSMFJCQzB3SzRJcGNHVndjaTF2DQpjR1Z1TFhCc1lYUm1iM0p0TFhCdmJHbGplUzV3WlhCeUxYTjVjM1JsYlM1emRtTXdEUVlKS29aSWh2Y05BUUVMDQpCUUFEZ2dFQkFLWHR4VFdLWkxpNDVlSDVuTWdUaHl1VUl1S1Q0ZU5KV2dWWG15Zy9qWTVidDB2eGtGTlBRdDVPDQpiVCt5bElsRXpuaTI4S3JCUk5oTHRWUkpnZ1BGM3dYdjBOQjhOL0dWUXhOVzIzVTdEMWk2MFM5UTVDQ2xlVnZ2DQprM3RQaWZBVzgvQlhUSTZXaEsrMDRiMWNMb2V3b2Yya2QzOGxoY0FWTDlSSDZTZGhHQ0hyajNTdEd4OFN4T2VaDQpxbU50bEJMVitVOSt1VkZNVWl6OUM1b0hhL0dqaU5ZbzU2TXlBdHdjY09hR3RONUZKcGNMMXRtRW4xaldGcVB3DQp6RkVyZkI4bnNpWEtxaWFqbEVQbzFpeTN2TVIyRFJzanFaNjBHS2lpWVRpY0NLdzNTdWR1OGEyejdDZHdkbWNuDQovVFV4a0c5bEdJMVVKZTd6THZ1c05GTy96d0FFNTNrPQ0KLS0tLS1FTkQgQ0VSVElGSUNBVEUtLS0tLQ0K
+  tls.key: >-
+    LS0tLS1CRUdJTiBSU0EgUFJJVkFURSBLRVktLS0tLQ0KTUlJRW93SUJBQUtDQVFFQXlwaXhVVTRpWS8xc1dhbFA2eldORHEySUZxSnNkS1RaMzl5TDJrTlh6RnYwZlo3Mg0KbW9JRzJydFBpTUtBanY3aGRzNkVCZU51dUV3c1JOM2dyWjVuSXZpSFU3aVduWm8wOFRxZHIvTnRhSjg5UVhoYg0KaUV3bnlIMXJDdzB3ZXhVMFd1L0VwbUdmSklmZFhCMnRtNk9vSHFSMFc3SzVUWGFOT01TYXluakJ1amJPZHFDaA0KbDZKTXpGVmlrZGtmVUhidTVjS2JSSi9CTjUvVVlXeHVJQnI4ZVkrZnhUMWNXL1o2WElacVF6VzdrMDlUZ05sbw0KLzRIZkxLOTI0TTYyMEQ3UjdjQ2JleVJZR0pwL2xROExsZ0pJeTFLY25PSVV3Y2EwMkRkZHljN1JCeEN3VHRIYQ0KTGl5bkd2c1NQSTZ0aDA2cHB1RVdSOFhYM3lHVEFpbmNMUTFVc1FJREFRQUJBb0lCQUFySnAwOTBBS0xMQzJwRQ0KSTJHYjRBbnpDdUcyL2wxcnF4VDAwbXcvS21mOXB0UWdQY2lydWNwZ2hQTlJvQW9uMzVZMW1ENitzSURzYXNNSg0KVkNoZjNKQUx6eHVSemFYN1lHeE9qd3oxRjZpbGYxdllHU1QxeTlIWGZuYXFoTXF1V0xPcTVyd1JTMVJrK1ByVQ0KWGJxQmlXSGEvSk1tdmgvZzBINUFWeG14ajd5UmpFVysrZExRMFFsa2dSR01ZQWdhd3NEMkUvby9RdmF1cG1Xaw0KRThNeEs0aHNJSEkvU3QwYUc1QVRIc05xbFlqb1FuejhKMXkwTzlYNzFtcDBaL0ZCMTdkWEs0U0lrRTNHZHNBNw0KYzRRT3RiMmZhaEdEZmRlU0NsbnV1RlBLZm9DcHhSVlppL2NrQjlpNjU5MDNkMmFCa1hPSUZoOG13ajZCMUg4bw0KMWFCY3lYMENnWUVBNWV1YXAwR2lRVDdSeEF4Q2FOSDRIMlU2VytBR2FySUg4MVhKOVJTSTdmRnZNZW45c2RPWA0KMjR0VkJFUVYxaHVORDlaVEU5bDFRWjQ4ZnEvS2RZb2pXL0lxZmNRM0h3OTJDaWxZS211S0xBQkZYdlpOVm9MNw0KZHhTdE01eW8rUDFDYVhpUm1NeTVSa1ZLWXpScWtwaXNuTVYxakFwMXdKUUl4WU4rMHpPaUF0OENnWUVBNFpPcA0KVzBKUlBZdE1VaitsQmptZ1JkbnJ1ajhGZXBIbHFLS1pHaVd4QXBxallxZG5HZGJFdktMNXJudzUwZjNUZVlyNw0KWTRtYWJiWExNUXhORWw5N0g2QVJEVzBTZWhTbkJqcnFYeldCWlNBcGFMZk55bXNjbEFNV2xJS1RaWnhJMnI3SA0KVmY0K20vcmdpemt4dXEvRUttTmZvZDVGc1o5Q1dTd0VRWDdhcW04Q2dZRUF1WE1oQ2ZseG8wakZMMmxvQTE0Zw0KMFVuNEdYVUlGL1ZEWG0xNitWZzMzaHlZUU4xb2lJK1A5RUJkTVpTdFBFWjZzQ1NDWEFkUmdiemROSjRjSWxScQ0Ka3RZd21jS3paelUwVTV2bmhrZTVhaVpKemYvQ2Y1NGtzSGNZQVFKQ2RKcnFmMklGcGdhekJsQUxZUnM5UHNNdw0Kcno3QndsUUppR3llNnBsV3FZb0RDbWNDZ1lCa3BaYWx3alF2U295MkVmR1drbldoVlBjcGRWOERiajlTKzZGbQ0KR2pVZFhWUFMrN0F6eGpDbm5ldmJYMUFKRXNDZGRWWnU5Z0Z5TysrNkphdnBxN0pxek9kdTN5Q2tXYnlnT2Y5Qw0KbGNQekUrT0Y5cVNhVVNwQ0hCS2lGcFNmZkpqQkNPZzF4U2U0UHJxYlE5eWRXRGtsVkl0aDFLT3grY1lIdFd6OA0Kc0JYdWZ3S0JnRjhIMFo2QnlyN3psQ0NYQ2U2NWo5cUxrR3UyVWZvaUV1YzgwaURHZlFSUE5xUkxUbEx1WUJ3dg0KOS9xL3BPalBua1BPdVY0emxRTC85d0NnRERlVDI1TXEzOHJSUTRweitEczNlb2VoM3VEanY3TjZzNFVMZlV2aQ0KWUZwT1FjUldyWk9VSExmdU55cnMrOUNwVFIxTWEzcXlVNXZuQUp6akZNQnk1LzY5SGRyUA0KLS0tLS1FTkQgUlNBIFBSSVZBVEUgS0VZLS0tLS0NCg==
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: pepr-open-platform-policy
+  namespace: pepr-system
+  annotations:
+    pepr.dev/description: Pepr policy engine for open-platform-infra
+  labels:
+    app: pepr-open-platform-policy
+    pepr.dev/controller: admission
+    pepr.dev/uuid: open-platform-policy
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: pepr-open-platform-policy
+      pepr.dev/controller: admission
+  template:
+    metadata:
+      annotations:
+        buildTimestamp: '1776097034330'
+      labels:
+        app: pepr-open-platform-policy
+        pepr.dev/controller: admission
+    spec:
+      terminationGracePeriodSeconds: 5
+      priorityClassName: system-node-critical
+      serviceAccountName: pepr-open-platform-policy
+      securityContext:
+        runAsUser: 65532
+        runAsGroup: 65532
+        runAsNonRoot: true
+        fsGroup: 65532
+      containers:
+        - name: server
+          image: ghcr.io/defenseunicorns/pepr/controller:v0.38.3
+          imagePullPolicy: IfNotPresent
+          command:
+            - node
+            - /app/node_modules/pepr/dist/controller.js
+            - a4615239e5bb94992c6d1d37ba69a3e1cf440abea5fb1554846d6f1b52298b4d
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: 3000
+              scheme: HTTPS
+            initialDelaySeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: 3000
+              scheme: HTTPS
+            initialDelaySeconds: 10
+          ports:
+            - containerPort: 3000
+          resources:
+            requests:
+              memory: 256Mi
+              cpu: 200m
+            limits:
+              memory: 512Mi
+              cpu: 500m
+          env:
+            - name: PEPR_WATCH_MODE
+              value: 'false'
+            - name: PEPR_PRETTY_LOG
+              value: 'false'
+            - name: LOG_LEVEL
+              value: info
+            - name: PEPR_MODE
+              value: audit
+          securityContext:
+            runAsUser: 65532
+            runAsGroup: 65532
+            runAsNonRoot: true
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL
+          volumeMounts:
+            - name: tls-certs
+              mountPath: /etc/certs
+              readOnly: true
+            - name: api-token
+              mountPath: /app/api-token
+              readOnly: true
+            - name: module
+              mountPath: /app/load
+              readOnly: true
+      volumes:
+        - name: tls-certs
+          secret:
+            secretName: pepr-open-platform-policy-tls
+        - name: api-token
+          secret:
+            secretName: pepr-open-platform-policy-api-token
+        - name: module
+          secret:
+            secretName: pepr-open-platform-policy-module
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: pepr-open-platform-policy
+  namespace: pepr-system
+  labels:
+    pepr.dev/controller: admission
+spec:
+  selector:
+    app: pepr-open-platform-policy
+    pepr.dev/controller: admission
+  ports:
+    - port: 443
+      targetPort: 3000
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: pepr-open-platform-policy-watcher
+  namespace: pepr-system
+  labels:
+    pepr.dev/controller: watcher
+spec:
+  selector:
+    app: pepr-open-platform-policy-watcher
+    pepr.dev/controller: watcher
+  ports:
+    - port: 443
+      targetPort: 3000
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: pepr-open-platform-policy-module
+  namespace: pepr-system
+type: Opaque
+data:
+  module-a4615239e5bb94992c6d1d37ba69a3e1cf440abea5fb1554846d6f1b52298b4d.js.gz: >-
+    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
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: pepr-open-platform-policy-store
+  namespace: pepr-system
+rules:
+  - apiGroups:
+      - pepr.dev
+    resources:
+      - peprstores
+    resourceNames:
+      - ''
+    verbs:
+      - create
+      - get
+      - patch
+      - watch
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: pepr-open-platform-policy-store
+  namespace: pepr-system
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: pepr-open-platform-policy-store
+subjects:
+  - kind: ServiceAccount
+    name: pepr-open-platform-policy-store
+    namespace: pepr-system
+---
+apiVersion: admissionregistration.k8s.io/v1
+kind: MutatingWebhookConfiguration
+metadata:
+  name: pepr-open-platform-policy
+webhooks:
+  - name: pepr-open-platform-policy.pepr.dev
+    admissionReviewVersions:
+      - v1
+      - v1beta1
+    clientConfig:
+      caBundle: >-
+        LS0tLS1CRUdJTiBDRVJUSUZJQ0FURS0tLS0tDQpNSUlDdERDQ0FaeWdBd0lCQWdJQkFUQU5CZ2txaGtpRzl3MEJBUXNGQURBY01Sb3dHQVlEVlFRREV4RlFaWEJ5DQpJRVZ3YUdWdFpYSmhiQ0JEUVRBZUZ3MHlOakEwTVRNeE5qRTNNVFJhRncweU56QTBNVE14TmpFM01UUmFNQUF3DQpnZ0VpTUEwR0NTcUdTSWIzRFFFQkFRVUFBNElCRHdBd2dnRUtBb0lCQVFDc3ppUEtNR3Y5QkRRL1ZROGpnTWFIDQpwK2dhZVBkZDlwNURzaXF4M1JEYURHajFPZ2NFWGlXVXNUbGhEL0h5cUVYVUEvSkxENDRzRU5EV2FUWjYrL0VxDQp6NCtJR1UzcFZZbFBlMzZwQzR0NDBDU2o0eDNqSHpvUkg0cHJzaHdJUmlIR01ISFYzQmd4Q0J4S0M5MjNncjRaDQprZkFPL3dWL0lmbGNESUxFdUNUMGJIMXE4eThYbDRzalB2U2hEMHp4QWJBTnN5aXlCc1UvRjljWUltdXNaWFY5DQpCV2xYTjBQWm5qd3R1VjVwWkJtWXpuREl2VGh3RUlRdEFqZFlGZTZFcUpmdFBOa01HZk9razhjTTRjcXoxV0tTDQpqVDNZRmxiUmhnTk5ZdDVObWdhV29xdDZLY3VPVGtvSDFjSnJNRUltWDNVK3BlRzNEVjVNNUhLd1hKRUU2dnVCDQpBZ01CQUFHakhUQWJNQXdHQTFVZEV3UUZNQU1CQWY4d0N3WURWUjBQQkFRREFnTDBNQTBHQ1NxR1NJYjNEUUVCDQpDd1VBQTRJQkFRQWN4MjJKUVAybVBtVFJhcVI5Sy9pa2p0OGJCQmtqUnVPeGs4TVJwbkN5U0tCaUlpZUNSSXk1DQpuY2haQ3AxamduMGhrc2NETVo3YWtqaXVnY1VSeGZ5QkZocklOT21BamNrRUlOZ1FieTFHOTFLYk4vcXJWdUhZDQo2TFNVOWU1VndTbkFvWFF1aXVVaHFNL01WdE56clZrVlhWSE8vd2lnREEyNW8rTmNsN3k0SVlnWHdkQ2R5ZE8rDQp5dklUbUkxcUZmbnZ4OXlQSmtxeXg2OTRid1J3aHc1RU9uRk45S3BiYWdac1lUWHR6YlhpeGZFa1d2RDAzK0xBDQpBL0Q0allndERtUHdBandzbVdyTUJ0SUNsOGJud2pUaVdqQzlaajlnZXNqMTRFUE85TkZhVmViVHVVOUQ1SGFEDQorQXR5N0U5K2Q0enJSQ3pjaXRlY1F0TzRrVGhiOERRTg0KLS0tLS1FTkQgQ0VSVElGSUNBVEUtLS0tLQ0K
+      service:
+        name: pepr-open-platform-policy
+        namespace: pepr-system
+        path: >-
+          /mutate/3bb980068368c27ccdbb200edec55a05e094dc0444ad8f48cfb93aa91afd7e5b
+    failurePolicy: Ignore
+    matchPolicy: Equivalent
+    timeoutSeconds: 10
+    namespaceSelector:
+      matchExpressions:
+        - key: pepr.dev
+          operator: NotIn
+          values:
+            - ignore
+        - key: kubernetes.io/metadata.name
+          operator: NotIn
+          values:
+            - kube-system
+            - pepr-system
+            - kube-system
+            - pepr-system
+            - flux-system
+            - cilium
+            - cert-manager
+    objectSelector:
+      matchExpressions:
+        - key: pepr.dev
+          operator: NotIn
+          values:
+            - ignore
+        - key: kubernetes.io/metadata.name
+          operator: NotIn
+          values:
+            - kube-system
+            - pepr-system
+            - kube-system
+            - pepr-system
+            - flux-system
+            - cilium
+            - cert-manager
+    rules:
+      - apiGroups:
+          - ''
+        apiVersions:
+          - v1
+        operations:
+          - CREATE
+        resources:
+          - pods
+          - pods/ephemeralcontainers
+      - apiGroups:
+          - ''
+        apiVersions:
+          - v1
+        operations:
+          - CREATE
+        resources:
+          - namespaces
+    sideEffects: None
+---
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingWebhookConfiguration
+metadata:
+  name: pepr-open-platform-policy
+webhooks:
+  - name: pepr-open-platform-policy.pepr.dev
+    admissionReviewVersions:
+      - v1
+      - v1beta1
+    clientConfig:
+      caBundle: >-
+        LS0tLS1CRUdJTiBDRVJUSUZJQ0FURS0tLS0tDQpNSUlDdERDQ0FaeWdBd0lCQWdJQkFUQU5CZ2txaGtpRzl3MEJBUXNGQURBY01Sb3dHQVlEVlFRREV4RlFaWEJ5DQpJRVZ3YUdWdFpYSmhiQ0JEUVRBZUZ3MHlOakEwTVRNeE5qRTNNVFJhRncweU56QTBNVE14TmpFM01UUmFNQUF3DQpnZ0VpTUEwR0NTcUdTSWIzRFFFQkFRVUFBNElCRHdBd2dnRUtBb0lCQVFDc3ppUEtNR3Y5QkRRL1ZROGpnTWFIDQpwK2dhZVBkZDlwNURzaXF4M1JEYURHajFPZ2NFWGlXVXNUbGhEL0h5cUVYVUEvSkxENDRzRU5EV2FUWjYrL0VxDQp6NCtJR1UzcFZZbFBlMzZwQzR0NDBDU2o0eDNqSHpvUkg0cHJzaHdJUmlIR01ISFYzQmd4Q0J4S0M5MjNncjRaDQprZkFPL3dWL0lmbGNESUxFdUNUMGJIMXE4eThYbDRzalB2U2hEMHp4QWJBTnN5aXlCc1UvRjljWUltdXNaWFY5DQpCV2xYTjBQWm5qd3R1VjVwWkJtWXpuREl2VGh3RUlRdEFqZFlGZTZFcUpmdFBOa01HZk9razhjTTRjcXoxV0tTDQpqVDNZRmxiUmhnTk5ZdDVObWdhV29xdDZLY3VPVGtvSDFjSnJNRUltWDNVK3BlRzNEVjVNNUhLd1hKRUU2dnVCDQpBZ01CQUFHakhUQWJNQXdHQTFVZEV3UUZNQU1CQWY4d0N3WURWUjBQQkFRREFnTDBNQTBHQ1NxR1NJYjNEUUVCDQpDd1VBQTRJQkFRQWN4MjJKUVAybVBtVFJhcVI5Sy9pa2p0OGJCQmtqUnVPeGs4TVJwbkN5U0tCaUlpZUNSSXk1DQpuY2haQ3AxamduMGhrc2NETVo3YWtqaXVnY1VSeGZ5QkZocklOT21BamNrRUlOZ1FieTFHOTFLYk4vcXJWdUhZDQo2TFNVOWU1VndTbkFvWFF1aXVVaHFNL01WdE56clZrVlhWSE8vd2lnREEyNW8rTmNsN3k0SVlnWHdkQ2R5ZE8rDQp5dklUbUkxcUZmbnZ4OXlQSmtxeXg2OTRid1J3aHc1RU9uRk45S3BiYWdac1lUWHR6YlhpeGZFa1d2RDAzK0xBDQpBL0Q0allndERtUHdBandzbVdyTUJ0SUNsOGJud2pUaVdqQzlaajlnZXNqMTRFUE85TkZhVmViVHVVOUQ1SGFEDQorQXR5N0U5K2Q0enJSQ3pjaXRlY1F0TzRrVGhiOERRTg0KLS0tLS1FTkQgQ0VSVElGSUNBVEUtLS0tLQ0K
+      service:
+        name: pepr-open-platform-policy
+        namespace: pepr-system
+        path: >-
+          /validate/3bb980068368c27ccdbb200edec55a05e094dc0444ad8f48cfb93aa91afd7e5b
+    failurePolicy: Ignore
+    matchPolicy: Equivalent
+    timeoutSeconds: 10
+    namespaceSelector:
+      matchExpressions:
+        - key: pepr.dev
+          operator: NotIn
+          values:
+            - ignore
+        - key: kubernetes.io/metadata.name
+          operator: NotIn
+          values:
+            - kube-system
+            - pepr-system
+            - kube-system
+            - pepr-system
+            - flux-system
+            - cilium
+            - cert-manager
+    objectSelector:
+      matchExpressions:
+        - key: pepr.dev
+          operator: NotIn
+          values:
+            - ignore
+        - key: kubernetes.io/metadata.name
+          operator: NotIn
+          values:
+            - kube-system
+            - pepr-system
+            - kube-system
+            - pepr-system
+            - flux-system
+            - cilium
+            - cert-manager
+    rules:
+      - apiGroups:
+          - ''
+        apiVersions:
+          - v1
+        operations:
+          - CREATE
+          - UPDATE
+        resources:
+          - namespaces
+      - apiGroups:
+          - apps
+        apiVersions:
+          - v1
+        operations:
+          - CREATE
+          - UPDATE
+        resources:
+          - deployments
+      - apiGroups:
+          - apps
+        apiVersions:
+          - v1
+        operations:
+          - CREATE
+          - UPDATE
+        resources:
+          - statefulsets
+      - apiGroups:
+          - apps
+        apiVersions:
+          - v1
+        operations:
+          - CREATE
+          - UPDATE
+        resources:
+          - daemonsets
+      - apiGroups:
+          - ''
+        apiVersions:
+          - v1
+        operations:
+          - CREATE
+        resources:
+          - pods
+          - pods/ephemeralcontainers
+    sideEffects: None
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: pepr-open-platform-policy-watcher
+  namespace: pepr-system
+  annotations:
+    pepr.dev/description: Pepr policy engine for open-platform-infra
+  labels:
+    app: pepr-open-platform-policy-watcher
+    pepr.dev/controller: watcher
+    pepr.dev/uuid: open-platform-policy
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app: pepr-open-platform-policy-watcher
+      pepr.dev/controller: watcher
+  template:
+    metadata:
+      annotations:
+        buildTimestamp: '1776097034330'
+      labels:
+        app: pepr-open-platform-policy-watcher
+        pepr.dev/controller: watcher
+    spec:
+      terminationGracePeriodSeconds: 5
+      serviceAccountName: pepr-open-platform-policy
+      securityContext:
+        runAsUser: 65532
+        runAsGroup: 65532
+        runAsNonRoot: true
+        fsGroup: 65532
+      containers:
+        - name: watcher
+          image: ghcr.io/defenseunicorns/pepr/controller:v0.38.3
+          imagePullPolicy: IfNotPresent
+          command:
+            - node
+            - /app/node_modules/pepr/dist/controller.js
+            - a4615239e5bb94992c6d1d37ba69a3e1cf440abea5fb1554846d6f1b52298b4d
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: 3000
+              scheme: HTTPS
+            initialDelaySeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: 3000
+              scheme: HTTPS
+            initialDelaySeconds: 10
+          ports:
+            - containerPort: 3000
+          resources:
+            requests:
+              memory: 256Mi
+              cpu: 200m
+            limits:
+              memory: 512Mi
+              cpu: 500m
+          securityContext:
+            runAsUser: 65532
+            runAsGroup: 65532
+            runAsNonRoot: true
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL
+          volumeMounts:
+            - name: tls-certs
+              mountPath: /etc/certs
+              readOnly: true
+            - name: module
+              mountPath: /app/load
+              readOnly: true
+          env:
+            - name: PEPR_WATCH_MODE
+              value: 'true'
+            - name: PEPR_PRETTY_LOG
+              value: 'false'
+            - name: LOG_LEVEL
+              value: info
+            - name: PEPR_MODE
+              value: audit
+      volumes:
+        - name: tls-certs
+          secret:
+            secretName: pepr-open-platform-policy-tls
+        - name: module
+          secret:
+            secretName: pepr-open-platform-policy-module

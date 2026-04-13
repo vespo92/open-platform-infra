@@ -1,6 +1,6 @@
 node_modules/
-dist/
-*.js
-*.js.map
-*.d.ts
-!jest.config.ts
+
+# Keep generated manifests for Flux deployment, ignore JS build artifacts
+dist/*.js
+dist/*.js.map
+dist/*.js.LEGAL.txt
