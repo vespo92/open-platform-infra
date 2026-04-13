@@ -21,3 +21,5 @@ resources:
   - monitoring/helmrelease.yaml
   - monitoring/loki-helmrelease.yaml
   - monitoring/alloy-helmrelease.yaml
+  # Policy engine — Pepr admission controller (audit-only initially)
+  - pepr/deploy/kustomization.yaml

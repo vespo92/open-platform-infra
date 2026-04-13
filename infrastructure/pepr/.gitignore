@@ -1,0 +1,7 @@
+node_modules/
+package-lock.json
+
+# Keep generated manifests for Flux deployment, ignore JS build artifacts
+dist/*.js
+dist/*.js.map
+dist/*.js.LEGAL.txt
