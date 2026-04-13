@@ -1,0 +1,11 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: pepr-system
+  labels:
+    app.kubernetes.io/name: pepr
+    app.kubernetes.io/part-of: open-platform-infra
+    app.kubernetes.io/managed-by: flux
+    # Exempt pepr-system from its own policies
+    platform.openplatform.io/owner: platform-team
+    platform.openplatform.io/environment: system

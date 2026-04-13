@@ -1,0 +1,51 @@
+{
+  "name": "open-platform-pepr",
+  "version": "0.1.0",
+  "description": "Pepr policy engine for open-platform-infra",
+  "keywords": ["pepr", "k8s", "policy", "admission-controller"],
+  "engines": {
+    "node": ">=20.0.0"
+  },
+  "pepr": {
+    "uuid": "open-platform-policy",
+    "onError": "audit",
+    "webhookTimeout": 10,
+    "customLabels": {
+      "namespace": {
+        "pepr.dev/controller": "admission",
+        "app.kubernetes.io/part-of": "open-platform-infra"
+      }
+    },
+    "alwaysIgnore": {
+      "namespaces": [
+        "kube-system",
+        "pepr-system",
+        "flux-system",
+        "cilium",
+        "cert-manager"
+      ]
+    },
+    "env": {
+      "PEPR_MODE": "audit"
+    }
+  },
+  "scripts": {
+    "build": "pepr build",
+    "build:image": "pepr build --registry ghcr.io/vespo92/open-platform-pepr",
+    "dev": "pepr dev",
+    "dev:cluster": "pepr dev --confirm",
+    "format": "pepr format",
+    "test": "jest --passWithNoTests",
+    "deploy": "pepr deploy"
+  },
+  "dependencies": {
+    "pepr": "^0.38.0"
+  },
+  "devDependencies": {
+    "@types/node": "^20.0.0",
+    "typescript": "^5.3.0",
+    "jest": "^29.7.0",
+    "ts-jest": "^29.1.0",
+    "@types/jest": "^29.5.0"
+  }
+}
